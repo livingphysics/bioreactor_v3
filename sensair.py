@@ -15,10 +15,10 @@ while True:
 	time.sleep(1)
 	resp=ser.read(7)
 	tmp = resp
-	# print([f"{b:02X}" for b in resp])
+	print([f"{b:02X}" for b in resp])
 	high = tmp[3]
 	low = tmp[4]
 	co2 = (high*256)+low
-	print(" CO = "+str(co2*10))
+	print(" CO2 = "+str(co2*10))
 	time.sleep(0.1)
 	

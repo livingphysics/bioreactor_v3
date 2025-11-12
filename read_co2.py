@@ -4,10 +4,16 @@ import numpy as np
 from collections import deque
 import time
 from atlas_i2c import atlas_i2c, sensors, commands
+import serial
+
+ser = serial.Serial("/dev/ttyUSB0",baudrate=9600,timeout=1)
+
+ser.flushInput()
+time.sleep(1)
 
 # Initialize sensors
-sensor_co2 = sensors.Sensor("CO2", 105)
-sensor_co2.connect()
+# sensor_co2 = sensors.Sensor("CO2", 105)
+# sensor_co2.connect()
 sensor_o2 = sensors.Sensor("O2", 108)
 sensor_o2.connect()
 
@@ -24,7 +30,7 @@ fig.suptitle('Live CO2 and O2 Monitoring')
 # CO2 subplot (top)
 ax1.set_title('CO2 Concentration')
 ax1.set_ylabel('CO2 (ppm)')
-ax1.set_ylim(300, 10000)  # Fixed scale as requested
+ax1.set_ylim(300, 100000)  # Fixed scale as requested
 ax1.grid(True, alpha=0.3)
 co2_line, = ax1.plot([], [], 'b-', linewidth=2, label='CO2')
 
@@ -46,12 +52,20 @@ plt.tight_layout()
 def animate(frame):
     try:
         # Read sensor data
-        co2_reading = sensor_co2.query(commands.READ)
+        # co2_reading = sensor_co2.query(commands.READ)
         o2_reading = sensor_o2.query(commands.READ)
         
         # Parse the data (remove units and convert to float)
-        co2_value = float(co2_reading.data.decode().replace('ppm', '').strip())
+        # co2_value = float(co2_reading.data.decode().replace('ppm', '').strip())
         o2_value = float(o2_reading.data.decode().replace('%', '').strip())
+        
+        ser.write(b"\xFE\x44\x00\x08\x02\x9F\x25")
+        time.sleep(1)
+        resp=ser.read(7)
+        tmp = resp
+        high = tmp[3]
+        low = tmp[4]
+        co2_value = 10*((high*256)+low)
         
         # Add to data arrays
         current_time = time.time()
@@ -67,7 +81,7 @@ def animate(frame):
             ax1.clear()
             ax1.set_title('CO2 Concentration')
             ax1.set_ylabel('CO2 (ppm)')
-            ax1.set_ylim(300, 10000)
+            ax1.set_ylim(300, 100000)
             ax1.grid(True, alpha=0.3)
             ax1.plot(time_relative, co2_data, 'b-', linewidth=2, label='CO2')
             ax1.legend()
