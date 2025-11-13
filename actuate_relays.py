@@ -163,6 +163,16 @@ def get_relay_states():
             states[relay_name] = None
     return states
 
+def is_gpio_initialized():
+    """
+    Check if GPIO chip is initialized.
+    
+    Returns:
+    --------
+    bool : True if GPIO is initialized, False otherwise
+    """
+    return gpio_chip is not None
+
 def cleanup_gpio():
     """
     Cleanup GPIO settings. Call this before exiting the program.
