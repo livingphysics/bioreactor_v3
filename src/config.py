@@ -13,6 +13,7 @@ class Config:
     LOG_LEVEL: str = 'INFO'
     LOG_FORMAT: str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     LOG_FILE: str = 'bioreactor.log'
+    LOG_TO_TERMINAL: bool = True  # Print logs to terminal/console
     DATA_OUT_FILE: str = 'bioreactor_data.csv'
     
     # Component Initialization Control

@@ -34,6 +34,11 @@ config.RELAY_PINS = [6, 13, 19, 26]
 config.RELAY_NAMES = ['pump_1', 'co2_solenoid', 'dump_valve', 'relay_4']
 config.CO2_SENSOR_ADDRESS = 105
 
+# Option 4: Control logging output
+config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
+config.LOG_FILE = 'bioreactor.log'  # Also log to file
+# Set LOG_TO_TERMINAL = False to only log to file
+
 # Initialize bioreactor
 with Bioreactor(config) as reactor:
     # Check if components are initialized

@@ -24,17 +24,30 @@ class Bioreactor():
         log_level = getattr(config, 'LOG_LEVEL', 'INFO') if config else 'INFO'
         self.logger.setLevel(getattr(logging, log_level))
         
-        if config and hasattr(config, 'LOG_FILE') and config.LOG_FILE:
-            handler = logging.FileHandler(config.LOG_FILE)
-        else:
-            handler = logging.StreamHandler()
-        
         log_format = getattr(config, 'LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s') if config else '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         formatter = logging.Formatter(log_format)
-        handler.setFormatter(formatter)
         
-        if not self.logger.hasHandlers():
-            self.logger.addHandler(handler)
+        # Clear any existing handlers to avoid duplicates
+        self.logger.handlers.clear()
+        
+        # Add file handler if LOG_FILE is specified
+        if config and hasattr(config, 'LOG_FILE') and config.LOG_FILE:
+            file_handler = logging.FileHandler(config.LOG_FILE)
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+        
+        # Add terminal/console handler if LOG_TO_TERMINAL is True
+        log_to_terminal = getattr(config, 'LOG_TO_TERMINAL', True) if config else True
+        if log_to_terminal:
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+        
+        # If no handlers were added, add a default console handler
+        if not self.logger.handlers:
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
         
         self.logger.info("Initializing Bioreactor...")
 
