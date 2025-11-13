@@ -16,7 +16,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import Bioreactor, Config
-from src.utils import actuate_pump1_relay, read_sensors_and_plot, create_flush_tank_job, flush_tank, inject_co2_delayed
+from src.utils import actuate_pump1_relay, read_sensors_and_plot, create_flush_tank_job, flush_tank, inject_co2_delayed, create_inject_co2_job
 
 # Option 1: Use default config
 config = Config()
@@ -65,12 +65,12 @@ with Bioreactor(config) as reactor:
         (actuate_pump1_relay, 180, True),  # Run every 3 minutes (180s) indefinitely
         (read_sensors_and_plot, 5, True),  # Read sensors and update plot every 5 seconds
         # (create_flush_tank_job(30), 3600, True),  # Flush tank every hour (30s valve open)
-        (inject_co2_delayed, True, 330),  # Wait 5 min, inject CO2 for 30s, then end (total: 330s)
+        (create_inject_co2_job(300, 10), True, 310),  # Wait 5 min (300s), inject CO2 for 30s, then end (total: 330s)
     ]
     
     # You can also call functions directly (not as scheduled jobs):
     # flush_tank(reactor, 30)  # Flush tank once with 30s valve open
-    # inject_co2_delayed(reactor)  # Wait 5 min, inject CO2 for 30s (one-time)
+    # inject_co2_delayed(reactor, 300, 30)  # Wait 5 min (300s), inject CO2 for 30s (one-time)
     
     reactor.run(jobs)
     print("Started scheduled jobs. Press Ctrl+C to stop.")

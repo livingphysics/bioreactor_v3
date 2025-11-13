@@ -75,19 +75,43 @@ def actuate_pump1_relay(bioreactor, elapsed=None):
     actuate_relay_timed(bioreactor, 'pump_1', 10, elapsed)
 
 
-def inject_co2_delayed(bioreactor, elapsed=None):
+def create_inject_co2_job(delay_seconds, injection_duration_seconds):
     """
-    Wait 5 minutes, then inject CO2 for 30 seconds by turning on co2_solenoid relay.
+    Create an inject_co2_delayed function with specific delay and injection duration for use with bioreactor.run().
+    
+    Args:
+        delay_seconds: Time to wait before starting CO2 injection
+        injection_duration_seconds: Duration to keep CO2 solenoid ON
+        
+    Returns:
+        function: A function that can be used with bioreactor.run()
+        
+    Example:
+        jobs = [
+            (create_inject_co2_job(300, 30), True, 330),  # Wait 5 min, inject 30s
+        ]
+    """
+    def inject_co2_job(bioreactor, elapsed=None):
+        inject_co2_delayed(bioreactor, delay_seconds, injection_duration_seconds, elapsed)
+    
+    return inject_co2_job
+
+
+def inject_co2_delayed(bioreactor, delay_seconds, injection_duration_seconds, elapsed=None):
+    """
+    Wait for specified delay, then inject CO2 for specified duration by turning on co2_solenoid relay.
     This is a one-time job that completes after the injection.
     
     Sequence:
-    1. Wait 5 minutes (300 seconds)
-    2. Turn ON co2_solenoid relay for 30 seconds
+    1. Wait for delay_seconds
+    2. Turn ON co2_solenoid relay for injection_duration_seconds
     3. Turn OFF co2_solenoid relay
     4. Job completes
     
     Args:
         bioreactor: Bioreactor instance
+        delay_seconds: Time to wait before starting CO2 injection (in seconds)
+        injection_duration_seconds: Duration to keep CO2 solenoid ON (in seconds)
         elapsed: Time elapsed since job started (optional, provided by run())
     """
     if not bioreactor.is_component_initialized('relays'):
@@ -105,16 +129,16 @@ def inject_co2_delayed(bioreactor, elapsed=None):
         gpio_chip = relay_info['chip']
         relay_pin = relay_info['pin']
         
-        # Step 1: Wait 5 minutes
-        bioreactor.logger.info("Waiting 5 minutes before CO2 injection...")
-        time.sleep(300)  # 5 minutes = 300 seconds
+        # Step 1: Wait for specified delay
+        bioreactor.logger.info(f"Waiting {delay_seconds} seconds before CO2 injection...")
+        time.sleep(delay_seconds)
         
-        # Step 2: Turn ON co2_solenoid for 30 seconds
-        bioreactor.logger.info("Starting CO2 injection (30 seconds)...")
+        # Step 2: Turn ON co2_solenoid for specified duration
+        bioreactor.logger.info(f"Starting CO2 injection ({injection_duration_seconds} seconds)...")
         lgpio.gpio_write(gpio_chip, relay_pin, 0)  # 0 = ON
         bioreactor.logger.info("co2_solenoid turned ON")
         
-        time.sleep(30)  # Inject for 30 seconds
+        time.sleep(injection_duration_seconds)  # Inject for specified duration
         
         # Step 3: Turn OFF co2_solenoid
         lgpio.gpio_write(gpio_chip, relay_pin, 1)  # 1 = OFF
