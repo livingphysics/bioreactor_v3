@@ -266,7 +266,7 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             _ax2.set_title('O2 Concentration')
             _ax2.set_ylabel('O2 (%)')
             _ax2.set_xlabel('Time (seconds)')
-            _ax2.set_ylim(0, 41)  # Fixed scale
+            _ax2.set_ylim(15, 25)  # Fixed scale
             _ax2.grid(True, alpha=0.3)
             
             plt.tight_layout()
@@ -338,7 +338,7 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             _ax2.set_title('O2 Concentration')
             _ax2.set_ylabel('O2 (%)')
             _ax2.set_xlabel('Time (seconds)')
-            _ax2.set_ylim(0, 41)
+            _ax2.set_ylim(15, 25)
             _ax2.grid(True, alpha=0.3)
             if len(_o2_data) > 0:
                 _ax2.plot(time_relative[-len(_o2_data):], list(_o2_data), 'r-', linewidth=2, label='O2')
