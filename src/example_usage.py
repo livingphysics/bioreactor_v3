@@ -16,7 +16,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import Bioreactor, Config
-from src.utils import actuate_pump1_relay
+from src.utils import actuate_pump1_relay, read_sensors_and_plot
 
 # Option 1: Use default config
 config = Config()
@@ -25,7 +25,7 @@ config = Config()
 config.INIT_COMPONENTS = {
     'relays': True,
     'co2_sensor': True,
-    'o2_sensor': False,  # Disable O2 sensor
+    'o2_sensor': True,  # Enable O2 sensor for plotting
     'i2c': False,
 }
 
@@ -51,6 +51,7 @@ with Bioreactor(config) as reactor:
     # duration: how long to run in seconds, or True for indefinite
     jobs = [
         (actuate_pump1_relay, 300, True),  # Run every 5 minutes (300s) indefinitely
+        (read_sensors_and_plot, 5, True),  # Read sensors and update plot every 5 seconds
     ]
     
     reactor.run(jobs)

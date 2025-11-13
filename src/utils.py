@@ -5,8 +5,20 @@ These functions are designed to be used with bioreactor.run() for scheduled task
 
 import time
 import logging
+from collections import deque
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger("Bioreactor.Utils")
+
+# Global variables for plotting (shared across calls)
+_plot_initialized = False
+_fig = None
+_ax1 = None
+_ax2 = None
+_co2_data = deque(maxlen=1000)
+_o2_data = deque(maxlen=1000)
+_time_data = deque(maxlen=1000)
+_start_time = None
 
 
 def actuate_relay_timed(bioreactor, relay_name, duration_seconds, elapsed=None):
@@ -61,4 +73,176 @@ def actuate_pump1_relay(bioreactor, elapsed=None):
         elapsed: Time elapsed since job started (optional, provided by run())
     """
     actuate_relay_timed(bioreactor, 'pump_1', 10, elapsed)
+
+
+def read_sensors_and_plot(bioreactor, elapsed=None):
+    """
+    Read CO2 and O2 sensors and update live plot.
+    Designed to run periodically (e.g., every 1-5 seconds).
+    
+    Args:
+        bioreactor: Bioreactor instance
+        elapsed: Time elapsed since job started (optional, provided by run())
+    """
+    global _plot_initialized, _fig, _ax1, _ax2, _co2_data, _o2_data, _time_data, _start_time
+    
+    # Initialize plot on first call
+    if not _plot_initialized:
+        try:
+            _fig, (_ax1, _ax2) = plt.subplots(2, 1, figsize=(10, 8))
+            _fig.suptitle('Live CO2 and O2 Monitoring')
+            
+            # CO2 subplot (top)
+            _ax1.set_title('CO2 Concentration')
+            _ax1.set_ylabel('CO2 (ppm)')
+            _ax1.set_ylim(300, 100000)  # Fixed scale
+            _ax1.grid(True, alpha=0.3)
+            
+            # O2 subplot (bottom)
+            _ax2.set_title('O2 Concentration')
+            _ax2.set_ylabel('O2 (%)')
+            _ax2.set_xlabel('Time (seconds)')
+            _ax2.set_ylim(0, 41)  # Fixed scale
+            _ax2.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            plt.ion()  # Turn on interactive mode
+            plt.show(block=False)
+            
+            _start_time = time.time()
+            _plot_initialized = True
+            bioreactor.logger.info("Plot initialized for sensor monitoring")
+        except Exception as e:
+            bioreactor.logger.error(f"Error initializing plot: {e}")
+            return
+    
+    try:
+        co2_value = None
+        o2_value = None
+        
+        # Read O2 sensor if available
+        if bioreactor.is_component_initialized('o2_sensor') and hasattr(bioreactor, 'o2_sensor'):
+            try:
+                from atlas_i2c import commands
+                o2_reading = bioreactor.o2_sensor.query(commands.READ)
+                o2_value = float(o2_reading.data.decode().replace('%', '').strip())
+            except Exception as e:
+                bioreactor.logger.warning(f"Error reading O2 sensor: {e}")
+        
+        # Read CO2 sensor if available
+        if bioreactor.is_component_initialized('co2_sensor') and hasattr(bioreactor, 'co2_sensor'):
+            try:
+                from atlas_i2c import commands
+                co2_reading = bioreactor.co2_sensor.query(commands.READ)
+                co2_value = float(co2_reading.data.decode().replace('ppm', '').strip())
+            except Exception as e:
+                bioreactor.logger.warning(f"Error reading CO2 sensor: {e}")
+        
+        # Alternative: Read CO2 from serial if sensor not available
+        if co2_value is None:
+            try:
+                import serial
+                if not hasattr(bioreactor, '_co2_serial'):
+                    bioreactor._co2_serial = serial.Serial("/dev/ttyUSB0", baudrate=9600, timeout=1)
+                    bioreactor._co2_serial.flushInput()
+                    time.sleep(1)
+                
+                bioreactor._co2_serial.write(b"\xFE\x44\x00\x08\x02\x9F\x25")
+                time.sleep(0.1)
+                resp = bioreactor._co2_serial.read(7)
+                if len(resp) >= 5:
+                    high = resp[3]
+                    low = resp[4]
+                    co2_value = 10 * ((high * 256) + low)
+            except Exception as e:
+                bioreactor.logger.warning(f"Error reading CO2 from serial: {e}")
+        
+        # Add data to arrays
+        current_time = time.time()
+        if _start_time is None:
+            _start_time = current_time
+        
+        if co2_value is not None:
+            _co2_data.append(co2_value)
+        if o2_value is not None:
+            _o2_data.append(o2_value)
+        _time_data.append(current_time)
+        
+        # Update plots if we have data
+        if len(_time_data) > 1:
+            # Convert time to relative seconds
+            time_relative = [(t - _start_time) for t in _time_data]
+            
+            # Update CO2 plot
+            _ax1.clear()
+            _ax1.set_title('CO2 Concentration')
+            _ax1.set_ylabel('CO2 (ppm)')
+            _ax1.set_ylim(300, 100000)
+            _ax1.grid(True, alpha=0.3)
+            if len(_co2_data) > 0:
+                _ax1.plot(time_relative[-len(_co2_data):], list(_co2_data), 'b-', linewidth=2, label='CO2')
+            _ax1.legend()
+            
+            # Update O2 plot
+            _ax2.clear()
+            _ax2.set_title('O2 Concentration')
+            _ax2.set_ylabel('O2 (%)')
+            _ax2.set_xlabel('Time (seconds)')
+            _ax2.set_ylim(0, 41)
+            _ax2.grid(True, alpha=0.3)
+            if len(_o2_data) > 0:
+                _ax2.plot(time_relative[-len(_o2_data):], list(_o2_data), 'r-', linewidth=2, label='O2')
+            _ax2.legend()
+            
+            # Refresh plot
+            plt.draw()
+            plt.pause(0.01)
+        
+        # Log readings
+        readings = []
+        if co2_value is not None:
+            readings.append(f"CO2: {co2_value:.1f} ppm")
+        if o2_value is not None:
+            readings.append(f"O2: {o2_value:.1f}%")
+        
+        if readings:
+            bioreactor.logger.info(", ".join(readings))
+        
+        # Write to CSV if available
+        if hasattr(bioreactor, 'writer') and hasattr(bioreactor, 'fieldnames'):
+            try:
+                # Use sensor labels from config if available, otherwise use generic names
+                row = {'time': current_time}
+                
+                # Get sensor label keys from config if available
+                if hasattr(bioreactor.cfg, 'SENSOR_LABELS'):
+                    co2_key = None
+                    o2_key = None
+                    for key, label in bioreactor.cfg.SENSOR_LABELS.items():
+                        if 'co2' in key.lower():
+                            co2_key = label
+                        if 'o2' in key.lower():
+                            o2_key = label
+                    
+                    if co2_value is not None:
+                        row[co2_key if co2_key else 'CO2_ppm'] = co2_value
+                    if o2_value is not None:
+                        row[o2_key if o2_key else 'O2_percent'] = o2_value
+                else:
+                    # Use generic names if no config labels
+                    if co2_value is not None:
+                        row['CO2_ppm'] = co2_value
+                    if o2_value is not None:
+                        row['O2_percent'] = o2_value
+                
+                # Only write if row has data and matches fieldnames
+                if row and all(k in bioreactor.fieldnames for k in row.keys()):
+                    bioreactor.writer.writerow(row)
+                    if hasattr(bioreactor, 'out_file'):
+                        bioreactor.out_file.flush()
+            except Exception as e:
+                bioreactor.logger.warning(f"Error writing to CSV: {e}")
+                
+    except Exception as e:
+        bioreactor.logger.error(f"Error in read_sensors_and_plot: {e}")
 
