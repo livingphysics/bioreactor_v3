@@ -41,4 +41,8 @@ class Config:
         'co2': 'CO2_ppm',
         'o2': 'O2_percent',
     }
+    
+    # Auto-flush on initialization
+    AUTO_FLUSH_ON_INIT: bool = True  # Automatically flush tank on startup
+    AUTO_FLUSH_DURATION: int = 30  # Duration in seconds for auto-flush
 

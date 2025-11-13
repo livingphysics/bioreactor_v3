@@ -75,6 +75,112 @@ def actuate_pump1_relay(bioreactor, elapsed=None):
     actuate_relay_timed(bioreactor, 'pump_1', 10, elapsed)
 
 
+def create_flush_tank_job(duration_seconds):
+    """
+    Create a flush_tank function with a specific duration for use with bioreactor.run().
+    
+    Args:
+        duration_seconds: Duration to keep valve open during flush
+        
+    Returns:
+        function: A function that can be used with bioreactor.run()
+        
+    Example:
+        jobs = [
+            (create_flush_tank_job(30), 3600, True),  # Flush every hour for 30s
+        ]
+    """
+    def flush_tank_job(bioreactor, elapsed=None):
+        flush_tank(bioreactor, duration_seconds, elapsed)
+    
+    return flush_tank_job
+
+
+def flush_tank(bioreactor, duration_seconds, elapsed=None):
+    """
+    Flush tank by running pump_1 and opening dump_valve for specified duration,
+    then closing valve and continuing pump for additional 20 seconds.
+    
+    Sequence:
+    1. Turn ON pump_1
+    2. Turn ON dump_valve (valve opens)
+    3. Wait for duration_seconds
+    4. Turn OFF dump_valve (valve closes)
+    5. Continue running pump_1 for additional 20 seconds
+    6. Turn OFF pump_1
+    
+    Args:
+        bioreactor: Bioreactor instance
+        duration_seconds: Duration to keep valve open (in seconds)
+        elapsed: Time elapsed since job started (optional, provided by run())
+    """
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("Relays not initialized, cannot flush tank")
+        return
+    
+    if not hasattr(bioreactor, 'relays'):
+        bioreactor.logger.warning("Relays not found")
+        return
+    
+    pump_relay = 'pump_1'
+    valve_relay = 'dump_valve'
+    
+    if pump_relay not in bioreactor.relays:
+        bioreactor.logger.warning(f"Relay '{pump_relay}' not found")
+        return
+    
+    if valve_relay not in bioreactor.relays:
+        bioreactor.logger.warning(f"Relay '{valve_relay}' not found")
+        return
+    
+    try:
+        import lgpio
+        
+        pump_info = bioreactor.relays[pump_relay]
+        valve_info = bioreactor.relays[valve_relay]
+        gpio_chip = pump_info['chip']  # Both should use same chip
+        pump_pin = pump_info['pin']
+        valve_pin = valve_info['pin']
+        
+        bioreactor.logger.info(f"Starting tank flush: pump ON, valve opening for {duration_seconds}s")
+        
+        # Step 1: Turn ON pump_1
+        lgpio.gpio_write(gpio_chip, pump_pin, 0)  # 0 = ON
+        bioreactor.logger.info(f"{pump_relay} turned ON")
+        
+        # Step 2: Turn ON dump_valve (valve opens)
+        lgpio.gpio_write(gpio_chip, valve_pin, 0)  # 0 = ON
+        bioreactor.logger.info(f"{valve_relay} turned ON (valve open)")
+        
+        # Step 3: Wait for specified duration
+        time.sleep(duration_seconds)
+        bioreactor.logger.info(f"Valve open duration ({duration_seconds}s) completed")
+        
+        # Step 4: Turn OFF dump_valve (valve closes)
+        lgpio.gpio_write(gpio_chip, valve_pin, 1)  # 1 = OFF
+        bioreactor.logger.info(f"{valve_relay} turned OFF (valve closed)")
+        
+        # Step 5: Continue running pump_1 for additional 20 seconds
+        bioreactor.logger.info("Continuing pump for additional 20 seconds")
+        time.sleep(20)
+        
+        # Step 6: Turn OFF pump_1
+        lgpio.gpio_write(gpio_chip, pump_pin, 1)  # 1 = OFF
+        bioreactor.logger.info(f"{pump_relay} turned OFF - Tank flush complete")
+        
+    except Exception as e:
+        bioreactor.logger.error(f"Error during tank flush: {e}")
+        # Try to turn off both relays in case of error
+        try:
+            import lgpio
+            gpio_chip = bioreactor.relays[pump_relay]['chip']
+            lgpio.gpio_write(gpio_chip, pump_info['pin'], 1)  # Turn off pump
+            lgpio.gpio_write(gpio_chip, valve_info['pin'], 1)  # Turn off valve
+            bioreactor.logger.info("Emergency: Both relays turned OFF")
+        except:
+            pass
+
+
 def read_sensors_and_plot(bioreactor, elapsed=None):
     """
     Read CO2 and O2 sensors and update live plot.

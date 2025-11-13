@@ -16,7 +16,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import Bioreactor, Config
-from src.utils import actuate_pump1_relay, read_sensors_and_plot
+from src.utils import actuate_pump1_relay, read_sensors_and_plot, create_flush_tank_job, flush_tank
 
 # Option 1: Use default config
 config = Config()
@@ -41,6 +41,11 @@ config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
 config.LOG_FILE = 'bioreactor.log'  # Also log to file
 # Set LOG_TO_TERMINAL = False to only log to file
 
+# Option 5: Control auto-flush on initialization
+config.AUTO_FLUSH_ON_INIT = True  # Automatically flush tank on startup (default: True)
+config.AUTO_FLUSH_DURATION = 30  # Duration in seconds for auto-flush (default: 30)
+# Set AUTO_FLUSH_ON_INIT = False to disable auto-flush
+
 # Initialize bioreactor
 with Bioreactor(config) as reactor:
     # Check if components are initialized
@@ -59,7 +64,11 @@ with Bioreactor(config) as reactor:
     jobs = [
         (actuate_pump1_relay, 300, True),  # Run every 5 minutes (300s) indefinitely
         (read_sensors_and_plot, 5, True),  # Read sensors and update plot every 5 seconds
+        # (create_flush_tank_job(30), 3600, True),  # Flush tank every hour (30s valve open)
     ]
+    
+    # You can also call flush_tank directly (not as a scheduled job):
+    # flush_tank(reactor, 30)  # Flush tank once with 30s valve open
     
     reactor.run(jobs)
     print("Started scheduled jobs. Press Ctrl+C to stop.")
