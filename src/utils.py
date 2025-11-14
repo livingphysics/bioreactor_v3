@@ -20,6 +20,10 @@ _co2_data = deque(maxlen=1000)
 _o2_data = deque(maxlen=1000)
 _time_data = deque(maxlen=1000)
 _start_time = None
+
+# Global variables for relay control window
+_relay_window_initialized = False
+_relay_fig = None
 _bioreactor_ref = None  # Store bioreactor reference for button callbacks
 _relay_buttons = {}  # Store button objects
 
@@ -50,39 +54,52 @@ def _create_relay_button_handler(relay_name, state):
 
 
 def _create_relay_buttons(bioreactor):
-    """Create interactive buttons for relay control on the plot."""
-    global _fig, _relay_buttons
+    """Create interactive buttons for relay control in the relay control window."""
+    global _relay_fig, _relay_buttons
     
     if not hasattr(bioreactor, 'relays') or not bioreactor.relays:
         return
     
-    # Button layout: create buttons in a row at the bottom
-    num_relays = len(bioreactor.relays)
-    button_width = 0.12
-    button_height = 0.05
-    button_spacing = 0.02
-    total_width = num_relays * (button_width * 2 + button_spacing) - button_spacing
-    start_x = (1.0 - total_width) / 2  # Center the buttons
-    start_y = 0.02
+    # Clear existing buttons
+    _relay_buttons.clear()
     
+    # Button layout: create buttons in a grid (2 columns, ON/OFF stacked)
+    num_relays = len(bioreactor.relays)
     relay_names = list(bioreactor.relays.keys())
     
+    # Calculate grid layout (2 columns)
+    cols = 2
+    rows = (num_relays + cols - 1) // cols  # Ceiling division
+    
+    button_width = 0.35
+    button_height = 0.08
+    button_spacing_x = 0.05
+    button_spacing_y = 0.12  # Space for ON/OFF pair
+    
+    # Calculate starting position to center vertically
+    total_height = rows * button_spacing_y
+    start_y = 0.9 - (total_height - button_spacing_y) / 2
+    
     for i, relay_name in enumerate(relay_names):
+        row = i // cols
+        col = i % cols
+        
         # Shorten relay name for button label
         short_name = relay_name.replace('_', ' ').title()
-        if len(short_name) > 8:
-            short_name = short_name[:8]
+        
+        # Calculate positions
+        on_x = 0.1 + col * (button_width + button_spacing_x)
+        on_y = start_y - row * button_spacing_y
         
         # ON button
-        on_x = start_x + i * (button_width * 2 + button_spacing)
-        on_ax = plt.axes([on_x, start_y, button_width, button_height])
+        on_ax = plt.axes([on_x, on_y, button_width, button_height], figure=_relay_fig)
         on_button = Button(on_ax, f'{short_name}\nON', color='lightgreen', hovercolor='green')
         on_button.on_clicked(_create_relay_button_handler(relay_name, True))
         _relay_buttons[f'{relay_name}_on'] = on_button
         
-        # OFF button
-        off_x = on_x + button_width + button_spacing / 2
-        off_ax = plt.axes([off_x, start_y, button_width, button_height])
+        # OFF button (below ON button)
+        off_y = on_y - button_height - 0.01
+        off_ax = plt.axes([on_x, off_y, button_width, button_height], figure=_relay_fig)
         off_button = Button(off_ax, f'{short_name}\nOFF', color='lightcoral', hovercolor='red')
         off_button.on_clicked(_create_relay_button_handler(relay_name, False))
         _relay_buttons[f'{relay_name}_off'] = off_button
@@ -361,21 +378,13 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             _ax2.set_ylim(15, 25)  # Fixed scale
             _ax2.grid(True, alpha=0.3)
             
-            # Store bioreactor reference for button callbacks
-            _bioreactor_ref = bioreactor
-            
-            # Create relay control buttons if relays are initialized
-            if bioreactor.is_component_initialized('relays') and hasattr(bioreactor, 'relays'):
-                _create_relay_buttons(bioreactor)
-            
-            # Adjust layout to make room for buttons at bottom
-            plt.subplots_adjust(bottom=0.15)
+            # No buttons in plot window anymore - they're in separate window
             plt.ion()  # Turn on interactive mode
             plt.show(block=False)
             
             _start_time = time.time()
             _plot_initialized = True
-            bioreactor.logger.info("Plot initialized for sensor monitoring with relay controls")
+            bioreactor.logger.info("Plot initialized for sensor monitoring")
         except Exception as e:
             bioreactor.logger.error(f"Error initializing plot: {e}")
             return
@@ -495,4 +504,51 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
                 
     except Exception as e:
         bioreactor.logger.error(f"Error in read_sensors_and_plot: {e}")
+
+
+def relay_control_window(bioreactor, elapsed=None):
+    """
+    Create and maintain a separate window with relay control buttons.
+    Designed to run at a lower frequency than sensor plotting (e.g., every 1-2 seconds).
+    The window is created once and then just refreshed to keep it responsive.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        elapsed: Time elapsed since job started (optional, provided by run())
+    """
+    global _relay_window_initialized, _relay_fig, _bioreactor_ref
+    
+    # Initialize relay control window on first call
+    if not _relay_window_initialized:
+        if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relays'):
+            bioreactor.logger.warning("Relays not initialized, cannot create relay control window")
+            return
+        
+        try:
+            # Create a new figure for relay control
+            _relay_fig = plt.figure(figsize=(8, 6))
+            _relay_fig.suptitle('Relay Control', fontsize=14, fontweight='bold')
+            
+            # Store bioreactor reference for button callbacks
+            _bioreactor_ref = bioreactor
+            
+            # Create relay control buttons
+            _create_relay_buttons(bioreactor)
+            
+            plt.ion()  # Turn on interactive mode
+            _relay_fig.show(block=False)
+            
+            _relay_window_initialized = True
+            bioreactor.logger.info("Relay control window initialized")
+        except Exception as e:
+            bioreactor.logger.error(f"Error initializing relay control window: {e}")
+            return
+    
+    # Refresh the window to keep it responsive
+    try:
+        if _relay_fig and plt.fignum_exists(_relay_fig.number):
+            _relay_fig.canvas.draw()
+            _relay_fig.canvas.flush_events()
+    except Exception as e:
+        bioreactor.logger.warning(f"Error refreshing relay control window: {e}")
 
