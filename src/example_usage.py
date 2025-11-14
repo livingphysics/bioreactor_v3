@@ -16,7 +16,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import Bioreactor, Config
-from src.utils import actuate_pump1_relay, read_sensors_and_plot, create_flush_tank_job, flush_tank, inject_co2_delayed, create_inject_co2_job, relay_control_window, init_relay_control_window
+from src.utils import actuate_pump1_relay, read_sensors_and_plot, create_flush_tank_job, flush_tank, inject_co2_delayed, create_inject_co2_job
 
 # Option 1: Use default config
 config = Config()
@@ -57,10 +57,6 @@ with Bioreactor(config) as reactor:
         print("CO2 sensor is ready!")
         # Use sensor via reactor.co2_sensor
     
-    # Initialize relay control window in main thread (required for matplotlib)
-    if reactor.is_component_initialized('relays'):
-        init_relay_control_window(reactor)
-    
     # Start scheduled jobs
     # Format: (function, frequency_seconds, duration)
     # frequency: time between calls in seconds, or True for continuous
@@ -68,7 +64,6 @@ with Bioreactor(config) as reactor:
     jobs = [
         (actuate_pump1_relay, 180, True),  # Run every 3 minutes (180s) indefinitely
         (read_sensors_and_plot, 5, True),  # Read sensors and update plot every 5 seconds
-        (relay_control_window, 0.5, True),  # Update relay control window every 0.5 second (separate window)
         # (create_flush_tank_job(30), 3600, True),  # Flush tank every hour (30s valve open)
         (create_inject_co2_job(300, 10), True, 310),  # Wait 5 min (300s), inject CO2 for 10s, then end (total: 310s)
     ]
