@@ -7,6 +7,7 @@ import time
 import logging
 from collections import deque
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
 
 logger = logging.getLogger("Bioreactor.Utils")
 
@@ -19,6 +20,72 @@ _co2_data = deque(maxlen=1000)
 _o2_data = deque(maxlen=1000)
 _time_data = deque(maxlen=1000)
 _start_time = None
+_bioreactor_ref = None  # Store bioreactor reference for button callbacks
+_relay_buttons = {}  # Store button objects
+
+
+def _create_relay_button_handler(relay_name, state):
+    """Create a button handler function for a specific relay and state."""
+    def handler(event):
+        global _bioreactor_ref
+        if _bioreactor_ref is None:
+            return
+        try:
+            import lgpio
+            if not _bioreactor_ref.is_component_initialized('relays'):
+                return
+            if relay_name not in _bioreactor_ref.relays:
+                return
+            
+            relay_info = _bioreactor_ref.relays[relay_name]
+            gpio_chip = relay_info['chip']
+            pin = relay_info['pin']
+            
+            lgpio.gpio_write(gpio_chip, pin, 0 if state else 1)  # 0 = ON, 1 = OFF
+            _bioreactor_ref.logger.info(f"Button: {relay_name} turned {'ON' if state else 'OFF'}")
+        except Exception as e:
+            if _bioreactor_ref:
+                _bioreactor_ref.logger.error(f"Error controlling {relay_name}: {e}")
+    return handler
+
+
+def _create_relay_buttons(bioreactor):
+    """Create interactive buttons for relay control on the plot."""
+    global _fig, _relay_buttons
+    
+    if not hasattr(bioreactor, 'relays') or not bioreactor.relays:
+        return
+    
+    # Button layout: create buttons in a row at the bottom
+    num_relays = len(bioreactor.relays)
+    button_width = 0.12
+    button_height = 0.05
+    button_spacing = 0.02
+    total_width = num_relays * (button_width * 2 + button_spacing) - button_spacing
+    start_x = (1.0 - total_width) / 2  # Center the buttons
+    start_y = 0.02
+    
+    relay_names = list(bioreactor.relays.keys())
+    
+    for i, relay_name in enumerate(relay_names):
+        # Shorten relay name for button label
+        short_name = relay_name.replace('_', ' ').title()
+        if len(short_name) > 8:
+            short_name = short_name[:8]
+        
+        # ON button
+        on_x = start_x + i * (button_width * 2 + button_spacing)
+        on_ax = plt.axes([on_x, start_y, button_width, button_height])
+        on_button = Button(on_ax, f'{short_name}\nON', color='lightgreen', hovercolor='green')
+        on_button.on_clicked(_create_relay_button_handler(relay_name, True))
+        _relay_buttons[f'{relay_name}_on'] = on_button
+        
+        # OFF button
+        off_x = on_x + button_width + button_spacing / 2
+        off_ax = plt.axes([off_x, start_y, button_width, button_height])
+        off_button = Button(off_ax, f'{short_name}\nOFF', color='lightcoral', hovercolor='red')
+        off_button.on_clicked(_create_relay_button_handler(relay_name, False))
+        _relay_buttons[f'{relay_name}_off'] = off_button
 
 
 def actuate_relay_timed(bioreactor, relay_name, duration_seconds, elapsed=None):
@@ -265,7 +332,7 @@ def flush_tank(bioreactor, duration_seconds, elapsed=None):
 
 def read_sensors_and_plot(bioreactor, elapsed=None):
     """
-    Read CO2 and O2 sensors and update live plot.
+    Read CO2 and O2 sensors and update live plot with interactive relay control buttons.
     Designed to run periodically (e.g., every 1-5 seconds).
     
     Args:
@@ -273,11 +340,12 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
         elapsed: Time elapsed since job started (optional, provided by run())
     """
     global _plot_initialized, _fig, _ax1, _ax2, _co2_data, _o2_data, _time_data, _start_time
+    global _bioreactor_ref, _relay_buttons
     
     # Initialize plot on first call
     if not _plot_initialized:
         try:
-            _fig, (_ax1, _ax2) = plt.subplots(2, 1, figsize=(10, 8))
+            _fig, (_ax1, _ax2) = plt.subplots(2, 1, figsize=(12, 8))
             _fig.suptitle('Live CO2 and O2 Monitoring')
             
             # CO2 subplot (top)
@@ -293,13 +361,21 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             _ax2.set_ylim(15, 25)  # Fixed scale
             _ax2.grid(True, alpha=0.3)
             
-            plt.tight_layout()
+            # Store bioreactor reference for button callbacks
+            _bioreactor_ref = bioreactor
+            
+            # Create relay control buttons if relays are initialized
+            if bioreactor.is_component_initialized('relays') and hasattr(bioreactor, 'relays'):
+                _create_relay_buttons(bioreactor)
+            
+            # Adjust layout to make room for buttons at bottom
+            plt.subplots_adjust(bottom=0.15)
             plt.ion()  # Turn on interactive mode
             plt.show(block=False)
             
             _start_time = time.time()
             _plot_initialized = True
-            bioreactor.logger.info("Plot initialized for sensor monitoring")
+            bioreactor.logger.info("Plot initialized for sensor monitoring with relay controls")
         except Exception as e:
             bioreactor.logger.error(f"Error initializing plot: {e}")
             return
