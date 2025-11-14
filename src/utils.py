@@ -536,7 +536,7 @@ def relay_control_window(bioreactor, elapsed=None):
             _create_relay_buttons(bioreactor)
             
             plt.ion()  # Turn on interactive mode
-            _relay_fig.show(block=False)
+            plt.show(block=False)  # Show all figures (non-blocking)
             
             _relay_window_initialized = True
             bioreactor.logger.info("Relay control window initialized")
