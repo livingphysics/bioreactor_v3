@@ -62,10 +62,11 @@ with Bioreactor(config) as reactor:
     # frequency: time between calls in seconds, or True for continuous
     # duration: how long to run in seconds, or True for indefinite
     jobs = [
-        (actuate_pump1_relay, 180, True),  # Run every 3 minutes (180s) indefinitely
+        # Run pump_1 every 3 minutes for 15 seconds (pass duration argument)
+        (lambda reactor, elapsed=None: actuate_pump1_relay(reactor, duration_seconds=3, elapsed=elapsed), 180, True),
         (read_sensors_and_plot, 5, True),  # Read sensors and update plot every 5 seconds
         # (create_flush_tank_job(30), 3600, True),  # Flush tank every hour (30s valve open)
-        (create_inject_co2_job(300, 10), True, 310),  # Wait 5 min (300s), inject CO2 for 10s, then end (total: 310s)
+        # (create_inject_co2_job(300, 10), True, 310),  # Wait 5 min (300s), inject CO2 for 10s, then end (total: 310s)
     ]
     
     # You can also call functions directly (not as scheduled jobs):
