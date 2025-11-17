@@ -25,6 +25,7 @@ config = Config()
 config.INIT_COMPONENTS = {
     'relays': True,
     'co2_sensor': True,
+    'co2_sensor_2': True,  # Enable second CO2 sensor on /dev/ttyUSB1
     'o2_sensor': True,  # Enable O2 sensor for plotting
     'i2c': False,
 }
