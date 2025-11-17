@@ -77,6 +77,37 @@ def init_co2_sensor(bioreactor, config):
         return {'initialized': False, 'error': str(e)}
 
 
+def init_co2_sensor_2(bioreactor, config):
+    """
+    Initialize second CO2 sensor via serial (TTYUSB1).
+    
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object
+        
+    Returns:
+        dict: {'sensor': serial object, 'initialized': bool}
+    """
+    try:
+        import serial
+        import time
+        
+        serial_port = getattr(config, 'CO2_SERIAL_PORT_2', '/dev/ttyUSB1')
+        baudrate = getattr(config, 'CO2_SERIAL_BAUDRATE_2', 9600)
+        
+        sensor = serial.Serial(serial_port, baudrate=baudrate, timeout=1)
+        sensor.flushInput()
+        time.sleep(1)  # Allow sensor to initialize
+        
+        bioreactor.co2_sensor_2 = sensor
+        logger.info(f"CO2 sensor 2 initialized on {serial_port} at {baudrate} baud")
+        
+        return {'sensor': sensor, 'initialized': True}
+    except Exception as e:
+        logger.error(f"CO2 sensor 2 initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
 def init_o2_sensor(bioreactor, config):
     """
     Initialize O2 sensor.
@@ -133,6 +164,7 @@ def init_i2c(bioreactor, config):
 COMPONENT_REGISTRY = {
     'relays': init_relays,
     'co2_sensor': init_co2_sensor,
+    'co2_sensor_2': init_co2_sensor_2,
     'o2_sensor': init_o2_sensor,
     'i2c': init_i2c,
 }

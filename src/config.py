@@ -21,6 +21,7 @@ class Config:
     INIT_COMPONENTS: dict[str, bool] = {
         'relays': True,
         'co2_sensor': True,
+        'co2_sensor_2': True,  # Second CO2 sensor
         'o2_sensor': True,
         'i2c': False,  # Only needed if other I2C components are used
     }
@@ -33,12 +34,16 @@ class Config:
     # CO2 sensor uses serial interface
     CO2_SERIAL_PORT: str = '/dev/ttyUSB0'
     CO2_SERIAL_BAUDRATE: int = 9600
+    # Second CO2 sensor uses serial interface
+    CO2_SERIAL_PORT_2: str = '/dev/ttyUSB1'
+    CO2_SERIAL_BAUDRATE_2: int = 9600
     # O2 sensor uses I2C (Atlas Scientific)
     O2_SENSOR_ADDRESS: int = 108
     
     # Sensor Labels for CSV output
     SENSOR_LABELS: dict = {
         'co2': 'CO2_ppm',
+        'co2_2': 'CO2_2_ppm',
         'o2': 'O2_percent',
     }
     

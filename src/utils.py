@@ -15,7 +15,11 @@ _plot_initialized = False
 _fig = None
 _ax1 = None
 _ax2 = None
+_co2_line = None  # Line object for CO2 plot
+_co2_line_2 = None  # Line object for CO2 sensor 2 plot
+_o2_line = None  # Line object for O2 plot
 _co2_data = deque(maxlen=1000)
+_co2_data_2 = deque(maxlen=1000)  # Data for second CO2 sensor
 _o2_data = deque(maxlen=1000)
 _time_data = deque(maxlen=1000)
 _start_time = None
@@ -273,7 +277,7 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
         bioreactor: Bioreactor instance
         elapsed: Time elapsed since job started (optional, provided by run())
     """
-    global _plot_initialized, _fig, _ax1, _ax2, _co2_data, _o2_data, _time_data, _start_time
+    global _plot_initialized, _fig, _ax1, _ax2, _co2_data, _co2_data_2, _o2_data, _time_data, _start_time
     global _bioreactor_ref, _relay_buttons
     
     # Initialize plot on first call
@@ -308,6 +312,7 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
     
     try:
         co2_value = None
+        co2_value_2 = None
         o2_value = None
         
         # Read O2 sensor if available
@@ -333,6 +338,20 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             except Exception as e:
                 bioreactor.logger.warning(f"Error reading CO2 sensor: {e}")
         
+        # Read second CO2 sensor from serial if available
+        if bioreactor.is_component_initialized('co2_sensor_2') and hasattr(bioreactor, 'co2_sensor_2'):
+            try:
+                # CO2 sensor 2 is a serial.Serial object
+                bioreactor.co2_sensor_2.write(b"\xFE\x44\x00\x08\x02\x9F\x25")
+                time.sleep(0.1)
+                resp = bioreactor.co2_sensor_2.read(7)
+                if len(resp) >= 5:
+                    high = resp[3]
+                    low = resp[4]
+                    co2_value_2 = 10 * ((high * 256) + low)
+            except Exception as e:
+                bioreactor.logger.warning(f"Error reading CO2 sensor 2: {e}")
+        
         # Add data to arrays
         current_time = time.time()
         if _start_time is None:
@@ -340,6 +359,8 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
         
         if co2_value is not None:
             _co2_data.append(co2_value)
+        if co2_value_2 is not None:
+            _co2_data_2.append(co2_value_2)
         if o2_value is not None:
             _o2_data.append(o2_value)
         _time_data.append(current_time)
@@ -357,6 +378,8 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             _ax1.grid(True, alpha=0.3)
             if len(_co2_data) > 0:
                 _ax1.plot(time_relative[-len(_co2_data):], list(_co2_data), 'b-', linewidth=2, label='CO2')
+            if len(_co2_data_2) > 0:
+                _ax1.plot(time_relative[-len(_co2_data_2):], list(_co2_data_2), 'g-', linewidth=2, label='CO2_2')
             _ax1.legend()
             
             # Update O2 plot
@@ -378,6 +401,8 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
         readings = []
         if co2_value is not None:
             readings.append(f"CO2: {co2_value:.1f} ppm")
+        if co2_value_2 is not None:
+            readings.append(f"CO2_2: {co2_value_2:.1f} ppm")
         if o2_value is not None:
             readings.append(f"O2: {o2_value:.1f}%")
         
@@ -393,21 +418,28 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
                 # Get sensor label keys from config if available
                 if hasattr(bioreactor.cfg, 'SENSOR_LABELS'):
                     co2_key = None
+                    co2_key_2 = None
                     o2_key = None
                     for key, label in bioreactor.cfg.SENSOR_LABELS.items():
-                        if 'co2' in key.lower():
+                        if key.lower() == 'co2':
                             co2_key = label
-                        if 'o2' in key.lower():
+                        elif key.lower() == 'co2_2':
+                            co2_key_2 = label
+                        elif 'o2' in key.lower():
                             o2_key = label
                     
                     if co2_value is not None:
                         row[co2_key if co2_key else 'CO2_ppm'] = co2_value
+                    if co2_value_2 is not None:
+                        row[co2_key_2 if co2_key_2 else 'CO2_2_ppm'] = co2_value_2
                     if o2_value is not None:
                         row[o2_key if o2_key else 'O2_percent'] = o2_value
                 else:
                     # Use generic names if no config labels
                     if co2_value is not None:
                         row['CO2_ppm'] = co2_value
+                    if co2_value_2 is not None:
+                        row['CO2_2_ppm'] = co2_value_2
                     if o2_value is not None:
                         row['O2_percent'] = o2_value
                 
