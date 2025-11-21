@@ -24,6 +24,7 @@ class Config:
         'co2_sensor_2': True,  # Second CO2 sensor
         'o2_sensor': True,
         'i2c': False,  # Only needed if other I2C components are used
+        'temp_sensor': True,  # DS18B20 temperature sensor
     }
     
     # Relay Configuration
@@ -40,11 +41,16 @@ class Config:
     # O2 sensor uses I2C (Atlas Scientific)
     O2_SENSOR_ADDRESS: int = 108
     
+    # Temperature Sensor Configuration
+    # DS18B20 sensor order (optional, uses all sensors in order if None)
+    TEMP_SENSOR_ORDER: list[int] = None  # e.g., [0, 1, 2, 3] to reorder sensors
+    
     # Sensor Labels for CSV output
     SENSOR_LABELS: dict = {
         'co2': 'CO2_ppm',
         'co2_2': 'CO2_2_ppm',
         'o2': 'O2_percent',
+        'temperature': 'temperature_C',
     }
     
     # Auto-flush on initialization

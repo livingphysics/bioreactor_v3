@@ -7,6 +7,7 @@ import time
 import logging
 from collections import deque
 import matplotlib.pyplot as plt
+import numpy as np
 
 logger = logging.getLogger("Bioreactor.Utils")
 
@@ -15,12 +16,14 @@ _plot_initialized = False
 _fig = None
 _ax1 = None
 _ax2 = None
+_ax3 = None  # Temperature plot axis
 _co2_line = None  # Line object for CO2 plot
 _co2_line_2 = None  # Line object for CO2 sensor 2 plot
 _o2_line = None  # Line object for O2 plot
 _co2_data = deque(maxlen=1000)
 _co2_data_2 = deque(maxlen=1000)  # Data for second CO2 sensor
 _o2_data = deque(maxlen=1000)
+_temp_data = deque(maxlen=1000)  # Temperature data
 _time_data = deque(maxlen=1000)
 _start_time = None
 
@@ -277,14 +280,14 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
         bioreactor: Bioreactor instance
         elapsed: Time elapsed since job started (optional, provided by run())
     """
-    global _plot_initialized, _fig, _ax1, _ax2, _co2_data, _co2_data_2, _o2_data, _time_data, _start_time
+    global _plot_initialized, _fig, _ax1, _ax2, _ax3, _co2_data, _co2_data_2, _o2_data, _temp_data, _time_data, _start_time
     global _bioreactor_ref, _relay_buttons
     
     # Initialize plot on first call
     if not _plot_initialized:
         try:
-            _fig, (_ax1, _ax2) = plt.subplots(2, 1, figsize=(12, 8))
-            _fig.suptitle('Live CO2 and O2 Monitoring')
+            _fig, (_ax1, _ax2, _ax3) = plt.subplots(3, 1, figsize=(12, 10))
+            _fig.suptitle('Live Sensor Monitoring')
             
             # CO2 subplot (top)
             _ax1.set_title('CO2 Concentration')
@@ -292,12 +295,18 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             _ax1.set_ylim(300, 100000)  # Fixed scale
             _ax1.grid(True, alpha=0.3)
             
-            # O2 subplot (bottom)
+            # O2 subplot (middle)
             _ax2.set_title('O2 Concentration')
             _ax2.set_ylabel('O2 (%)')
-            _ax2.set_xlabel('Time (seconds)')
             _ax2.set_ylim(15, 25)  # Fixed scale
             _ax2.grid(True, alpha=0.3)
+            
+            # Temperature subplot (bottom)
+            _ax3.set_title('Temperature')
+            _ax3.set_ylabel('Temperature (°C)')
+            _ax3.set_xlabel('Time (seconds)')
+            _ax3.set_ylim(0, 100)  # Adjust based on expected range
+            _ax3.grid(True, alpha=0.3)
             
             # No buttons in plot window anymore - they're in separate window
             plt.ion()  # Turn on interactive mode
@@ -314,6 +323,7 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
         co2_value = None
         co2_value_2 = None
         o2_value = None
+        temp_value = None
         
         # Read O2 sensor if available
         if bioreactor.is_component_initialized('o2_sensor') and hasattr(bioreactor, 'o2_sensor'):
@@ -352,6 +362,15 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             except Exception as e:
                 bioreactor.logger.warning(f"Error reading CO2 sensor 2: {e}")
         
+        # Read temperature sensor if available
+        if bioreactor.is_component_initialized('temp_sensor'):
+            try:
+                temp_value = bioreactor.get_temperature(0)  # Read first sensor
+                if np.isnan(temp_value):
+                    temp_value = None
+            except Exception as e:
+                bioreactor.logger.warning(f"Error reading temperature sensor: {e}")
+        
         # Add data to arrays
         current_time = time.time()
         if _start_time is None:
@@ -363,6 +382,8 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             _co2_data_2.append(co2_value_2)
         if o2_value is not None:
             _o2_data.append(o2_value)
+        if temp_value is not None:
+            _temp_data.append(temp_value)
         _time_data.append(current_time)
         
         # Update plots if we have data
@@ -386,12 +407,22 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             _ax2.clear()
             _ax2.set_title('O2 Concentration')
             _ax2.set_ylabel('O2 (%)')
-            _ax2.set_xlabel('Time (seconds)')
             _ax2.set_ylim(15, 25)
             _ax2.grid(True, alpha=0.3)
             if len(_o2_data) > 0:
                 _ax2.plot(time_relative[-len(_o2_data):], list(_o2_data), 'r-', linewidth=2, label='O2')
             _ax2.legend()
+            
+            # Update Temperature plot
+            _ax3.clear()
+            _ax3.set_title('Temperature')
+            _ax3.set_ylabel('Temperature (°C)')
+            _ax3.set_xlabel('Time (seconds)')
+            _ax3.set_ylim(0, 100)
+            _ax3.grid(True, alpha=0.3)
+            if len(_temp_data) > 0:
+                _ax3.plot(time_relative[-len(_temp_data):], list(_temp_data), 'm-', linewidth=2, label='Temperature')
+            _ax3.legend()
             
             # Refresh plot
             plt.draw()
@@ -405,6 +436,8 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
             readings.append(f"CO2_2: {co2_value_2:.1f} ppm")
         if o2_value is not None:
             readings.append(f"O2: {o2_value:.1f}%")
+        if temp_value is not None:
+            readings.append(f"Temp: {temp_value:.1f}°C")
         
         if readings:
             bioreactor.logger.info(", ".join(readings))
@@ -420,6 +453,7 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
                     co2_key = None
                     co2_key_2 = None
                     o2_key = None
+                    temp_key = None
                     for key, label in bioreactor.cfg.SENSOR_LABELS.items():
                         if key.lower() == 'co2':
                             co2_key = label
@@ -427,6 +461,8 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
                             co2_key_2 = label
                         elif 'o2' in key.lower():
                             o2_key = label
+                        elif 'temperature' in key.lower() or 'temp' in key.lower():
+                            temp_key = label
                     
                     if co2_value is not None:
                         row[co2_key if co2_key else 'CO2_ppm'] = co2_value
@@ -434,6 +470,8 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
                         row[co2_key_2 if co2_key_2 else 'CO2_2_ppm'] = co2_value_2
                     if o2_value is not None:
                         row[o2_key if o2_key else 'O2_percent'] = o2_value
+                    if temp_value is not None:
+                        row[temp_key if temp_key else 'temperature_C'] = temp_value
                 else:
                     # Use generic names if no config labels
                     if co2_value is not None:
@@ -442,6 +480,8 @@ def read_sensors_and_plot(bioreactor, elapsed=None):
                         row['CO2_2_ppm'] = co2_value_2
                     if o2_value is not None:
                         row['O2_percent'] = o2_value
+                    if temp_value is not None:
+                        row['temperature_C'] = temp_value
                 
                 # Only write if row has data and matches fieldnames
                 if row and all(k in bioreactor.fieldnames for k in row.keys()):

@@ -165,6 +165,28 @@ class Bioreactor():
             bool: True if initialized, False otherwise
         """
         return self._initialized.get(component_name, False)
+    
+    def get_temperature(self, sensor_index=0):
+        """Get temperature from DS18B20 sensor(s).
+        
+        Args:
+            sensor_index (int): Index of sensor to read (default: 0 for first sensor)
+            
+        Returns:
+            float: Temperature in Celsius, or NaN if sensor not available
+        """
+        if not self.is_component_initialized('temp_sensor'):
+            return float('nan')
+        
+        try:
+            if hasattr(self, 'temp_sensors') and len(self.temp_sensors) > sensor_index:
+                return self.temp_sensors[sensor_index].get_temperature()
+            else:
+                self.logger.warning(f"Temperature sensor index {sensor_index} not available")
+                return float('nan')
+        except Exception as e:
+            self.logger.error(f"Error reading temperature sensor {sensor_index}: {e}")
+            return float('nan')
 
     # Threaded scheduling
 

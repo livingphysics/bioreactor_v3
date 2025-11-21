@@ -160,6 +160,39 @@ def init_i2c(bioreactor, config):
         return {'initialized': False, 'error': str(e)}
 
 
+def init_temp_sensor(bioreactor, config):
+    """
+    Initialize DS18B20 temperature sensor(s).
+    
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object
+        
+    Returns:
+        dict: {'sensors': list of sensor objects, 'initialized': bool}
+    """
+    try:
+        from ds18b20 import DS18B20
+        import numpy as np
+        
+        # Get sensor order from config, or use all sensors in order
+        sensor_order = getattr(config, 'TEMP_SENSOR_ORDER', None)
+        
+        all_sensors = DS18B20.get_all_sensors()
+        if sensor_order is not None:
+            sensors = np.array(all_sensors)[sensor_order]
+        else:
+            sensors = np.array(all_sensors)
+        
+        bioreactor.temp_sensors = sensors
+        logger.info(f"DS18B20 temperature sensors initialized ({len(sensors)} sensors)")
+        
+        return {'sensors': sensors, 'initialized': True}
+    except Exception as e:
+        logger.error(f"DS18B20 temperature sensor initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
 # Component registry - maps component names to initialization functions
 COMPONENT_REGISTRY = {
     'relays': init_relays,
@@ -167,5 +200,6 @@ COMPONENT_REGISTRY = {
     'co2_sensor_2': init_co2_sensor_2,
     'o2_sensor': init_o2_sensor,
     'i2c': init_i2c,
+    'temp_sensor': init_temp_sensor,
 }
 
