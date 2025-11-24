@@ -41,6 +41,7 @@ config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
 config.LOG_FILE = 'bioreactor.log'  # Also log to file
 # Set LOG_TO_TERMINAL = False to only log to file
 
+config.USE_TIMESTAMPED_FILENAME: bool = False 
 
 # Initialize bioreactor
 with Bioreactor(config) as reactor:
