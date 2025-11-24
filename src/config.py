@@ -47,4 +47,5 @@ class Config:
         'co2': 'CO2_ppm',
         'co2_2': 'CO2_2_ppm',
         'o2': 'O2_percent',
+        'temperature': 'temperature_C',
     }
