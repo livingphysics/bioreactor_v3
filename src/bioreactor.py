@@ -62,10 +62,6 @@ class Bioreactor():
             self._init_components = {}
             self.logger.warning("No component configuration found. No components will be initialized.")
 
-        # For PID (if needed)
-        self._temp_integral = 0.0
-        self._temp_last_error = 0.0
-
         # Threading
         self._threads = []
         self._stop_event = threading.Event()
