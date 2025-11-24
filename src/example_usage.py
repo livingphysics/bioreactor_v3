@@ -18,10 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import Bioreactor, Config
 from src.utils import *
 
-# Option 1: Use default config
+# Load default config
 config = Config()
 
-# Option 2: Customize which components to initialize
+# Override some settings in the configuration
 config.INIT_COMPONENTS = {
     'relays': True,
     'co2_sensor': True,
@@ -31,22 +31,16 @@ config.INIT_COMPONENTS = {
     'temp_sensor': True,
 }
 
-# Option 3: Customize component settings
 config.RELAY_PINS = [6, 13, 19, 26]
 config.RELAY_NAMES = ['pump_1', 'co2_solenoid', 'dump_valve', 'relay_4']
 # CO2 sensor uses serial (default: /dev/ttyUSB0 at 9600 baud)
 # config.CO2_SERIAL_PORT = '/dev/ttyUSB0'
 # config.CO2_SERIAL_BAUDRATE = 9600
 
-# Option 4: Control logging output
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
 config.LOG_FILE = 'bioreactor.log'  # Also log to file
 # Set LOG_TO_TERMINAL = False to only log to file
 
-# Option 5: Control auto-flush on initialization
-config.AUTO_FLUSH_ON_INIT = True  # Automatically flush tank on startup (default: True)
-config.AUTO_FLUSH_DURATION = 15  # Duration in seconds for auto-flush (default: 30)
-# Set AUTO_FLUSH_ON_INIT = False to disable auto-flush
 
 # Initialize bioreactor
 with Bioreactor(config) as reactor:
