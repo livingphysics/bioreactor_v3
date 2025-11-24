@@ -20,7 +20,10 @@ def get_temperature(bioreactor, sensor_index=0):
         
         try:
             if hasattr(bioreactor, 'temp_sensors') and len(bioreactor.temp_sensors) > sensor_index:
-                return bioreactor.temp_sensors[sensor_index].get_temperature()
+                bioreactor.logger.info(f"Reading temperature from sensor {sensor_index}")
+                temperature = bioreactor.temp_sensors[sensor_index].get_temperature()
+                bioreactor.logger.info(f"Temperature: {temperature}")
+                return temperature
             else:
                 bioreactor.logger.warning(f"Temperature sensor index {sensor_index} not available")
                 return float('nan')
