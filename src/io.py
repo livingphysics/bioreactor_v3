@@ -36,7 +36,6 @@ def get_relay_state(bioreactor, relay_name: str) -> bool:
         
         Args:
             relay_name (str): Name of the relay (e.g., 'relay_1', 'relay_2', etc.)
-            state (bool): True to turn ON, False to turn OFF
         """
         if not bioreactor.is_component_initialized('relays'):
             bioreactor.logger.warning("Relays not initialized")
