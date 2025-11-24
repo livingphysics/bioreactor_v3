@@ -15,6 +15,7 @@ class Config:
     LOG_FILE: str = 'bioreactor.log'
     LOG_TO_TERMINAL: bool = True  # Print logs to terminal/console
     DATA_OUT_FILE: str = 'bioreactor_data.csv'
+    USE_TIMESTAMPED_FILENAME: bool = True  # If True, adds timestamp prefix (e.g., "20250113_153000_bioreactor_data.csv"). If False, uses base filename only.
     
     # Component Initialization Control
     # Set to True to initialize, False to skip

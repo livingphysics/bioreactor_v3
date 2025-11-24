@@ -77,18 +77,25 @@ class Bioreactor():
         
         self.fieldnames = fieldnames
         
-        # Add timestamp to filename and create bioreactor_data directory
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # Get filename configuration
         base_filename = getattr(config, 'DATA_OUT_FILE', 'bioreactor_data.csv') if config else 'bioreactor_data.csv'
+        use_timestamp = getattr(config, 'USE_TIMESTAMPED_FILENAME', True) if config else True
         
         # Ensure bioreactor_data directory exists
         data_dir = 'bioreactor_data'
         os.makedirs(data_dir, exist_ok=True)
         
-        out_file_path = os.path.join(data_dir, f"{timestamp}_{base_filename}")
+        # Build filename with or without timestamp
+        if use_timestamp:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            out_file_path = os.path.join(data_dir, f"{timestamp}_{base_filename}")
+        else:
+            out_file_path = os.path.join(data_dir, base_filename)
+        
         self.out_file = open(out_file_path, 'w', newline='')
         self.writer = csv.DictWriter(self.out_file, fieldnames=fieldnames)
         self.writer.writeheader()
+        self.logger.info(f"Data logging to: {out_file_path}")
 
         self.logger.info("Bioreactor initialization complete.")
         
