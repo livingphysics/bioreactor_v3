@@ -24,6 +24,7 @@ class Config:
         'co2_sensor_2': True,  # Second CO2 sensor
         'o2_sensor': True,
         'i2c': False,  # Only needed if other I2C components are used
+        'temp_sensor': True,
     }
     
     # Relay Configuration

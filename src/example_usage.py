@@ -28,6 +28,7 @@ config.INIT_COMPONENTS = {
     'co2_sensor_2': True,  # Enable second CO2 sensor on /dev/ttyUSB1
     'o2_sensor': True,  # Enable O2 sensor for plotting
     'i2c': False,
+    'temp_sensor': True,
 }
 
 # Option 3: Customize component settings
@@ -58,6 +59,10 @@ with Bioreactor(config) as reactor:
         print("CO2 sensor is ready!")
         # Use sensor via reactor.co2_sensor
     
+    if reactor.is_component_initialized('temp_sensor'):
+        print("Temperature sensors are ready!")
+        # Use sensors via reactor.temp_sensors array
+
     # Start scheduled jobs
     # Format: (function, frequency_seconds, duration)
     # frequency: time between calls in seconds, or True for continuous
