@@ -92,17 +92,6 @@ class Bioreactor():
 
         self.logger.info("Bioreactor initialization complete.")
         
-        # Auto-flush tank on initialization if enabled
-        auto_flush = getattr(config, 'AUTO_FLUSH_ON_INIT', True) if config else True
-        if auto_flush and self.is_component_initialized('relays'):
-            try:
-                from .utils import flush_tank
-                flush_duration = getattr(config, 'AUTO_FLUSH_DURATION', 30) if config else 30
-                self.logger.info(f"Starting automatic tank flush ({flush_duration}s)...")
-                flush_tank(self, flush_duration)
-                self.logger.info("Automatic tank flush completed.")
-            except Exception as e:
-                self.logger.error(f"Error during automatic tank flush: {e}")
 
     def _initialize_components(self, config) -> None:
         """Initialize components based on INIT_COMPONENTS configuration.
