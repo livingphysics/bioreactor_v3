@@ -24,12 +24,12 @@ config = Config()
 
 # Override some settings in the configuration
 config.INIT_COMPONENTS = {
-    'relays': True,
-    'co2_sensor': True,
-    'co2_sensor_2': True,  # Enable second CO2 sensor on /dev/ttyUSB1
-    'o2_sensor': True,  # Enable O2 sensor for plotting
+    'relays': False,
+    'co2_sensor': False,
+    'co2_sensor_2': False,  # Enable second CO2 sensor on /dev/ttyUSB1
+    'o2_sensor': False,  # Enable O2 sensor for plotting
     'i2c': False,
-    'temp_sensor': True,
+    'temp_sensor': False,
     'peltier_driver': True,
 }
 
@@ -66,7 +66,8 @@ with Bioreactor(config) as reactor:
         # (read_sensors_and_plot, 5, True),  # Read sensors and update plot every 5 seconds
 
     ]
-    print(f"Temperature: {get_temperature(reactor, 0)}")
+    if reactor.is_component_initialized('temp_sensor'):
+        print(f"Temperature: {get_temperature(reactor, 0)}")
     
     # Use RelayController for clean API (recommended)
     if reactor.is_component_initialized('relays'):
@@ -79,6 +80,9 @@ with Bioreactor(config) as reactor:
     
     if reactor.is_component_initialized('peltier_driver'):
         set_peltier_power(reactor, 25, 'heat')
+        time.sleep(10)
+        set_peltier_power(reactor, 25, 'cool')
+        time.sleep(10)
         print("Peltier set to 25% duty (heat direction)")
         stop_peltier(reactor)
     

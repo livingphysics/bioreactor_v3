@@ -4289,3 +4289,81 @@
 2025-11-24 20:49:22,138 - Bioreactor - INFO - Stop event set for all threads.
 2025-11-24 20:49:22,138 - Bioreactor - INFO - Data file closed.
 2025-11-24 20:49:22,138 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:22:31,827 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:22:31,827 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:22:31,827 - Bioreactor.Components - ERROR - Peltier driver dependencies missing: No module named 'lgpio'
+2025-11-26 09:22:31,827 - Bioreactor - ERROR - peltier_driver initialization failed: No module named 'lgpio'
+2025-11-26 09:22:31,828 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:22:31,828 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:22:31,828 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:22:41,211 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:22:41,211 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:22:41,211 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:22:41,211 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:22:41,214 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:22:41,214 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:22:41,214 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:22:41,214 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:25:07,790 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:25:07,791 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:25:07,792 - Bioreactor.Components - ERROR - Peltier driver dependencies missing: No module named 'lgpio'
+2025-11-26 09:25:07,792 - Bioreactor - ERROR - peltier_driver initialization failed: No module named 'lgpio'
+2025-11-26 09:25:07,792 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:25:07,792 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:25:07,792 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:35:00,248 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:35:00,249 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:35:00,249 - Bioreactor.Components - ERROR - Peltier driver dependencies missing: No module named 'lgpio'
+2025-11-26 09:35:00,249 - Bioreactor - ERROR - peltier_driver initialization failed: No module named 'lgpio'
+2025-11-26 09:35:00,249 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:35:00,249 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:35:00,249 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:35:24,152 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:35:24,153 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:35:24,158 - Bioreactor.Components - INFO - Peltier driver initialized (PWM pin 12, DIR pin 16, 1000 Hz)
+2025-11-26 09:35:24,158 - Bioreactor - INFO - peltier_driver initialized successfully
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Peltier set to 25.0% duty, direction forward
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:45:14,485 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:45:14,485 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:45:14,488 - Bioreactor.Components - INFO - Peltier driver initialized (PWM pin 12, DIR pin 16, 1000 Hz)
+2025-11-26 09:45:14,488 - Bioreactor - INFO - peltier_driver initialized successfully
+2025-11-26 09:45:14,488 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:45:14,488 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:45:14,488 - Bioreactor - INFO - Peltier set to 25.0% duty, direction forward
+2025-11-26 09:45:16,489 - Bioreactor - INFO - Peltier set to 25.0% duty, direction reverse
+2025-11-26 09:45:18,489 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:45:18,489 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:45:42,506 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:45:42,506 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:45:42,510 - Bioreactor.Components - INFO - Peltier driver initialized (PWM pin 12, DIR pin 16, 1000 Hz)
+2025-11-26 09:45:42,510 - Bioreactor - INFO - peltier_driver initialized successfully
+2025-11-26 09:45:42,511 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:45:42,511 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:45:42,511 - Bioreactor - INFO - Peltier set to 25.0% duty, direction forward
+2025-11-26 09:45:52,511 - Bioreactor - INFO - Peltier set to 25.0% duty, direction reverse
+2025-11-26 09:46:02,512 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:46:02,512 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Bioreactor cleanup complete.
