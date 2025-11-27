@@ -4085,3 +4085,285 @@
 2025-11-24 16:23:59,957 - Bioreactor - INFO - Stop event set for all threads.
 2025-11-24 16:23:59,957 - Bioreactor - INFO - Data file closed.
 2025-11-24 16:23:59,957 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:31:41,986 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-24 20:31:41,986 - Bioreactor - INFO - Initializing relays...
+2025-11-24 20:31:41,988 - Bioreactor.Components - INFO - Relay pump_1 initialized on pin 6
+2025-11-24 20:31:41,988 - Bioreactor.Components - INFO - Relay co2_solenoid initialized on pin 13
+2025-11-24 20:31:41,989 - Bioreactor.Components - INFO - Relay dump_valve initialized on pin 19
+2025-11-24 20:31:41,989 - Bioreactor.Components - INFO - Relay relay_4 initialized on pin 26
+2025-11-24 20:31:41,989 - Bioreactor - INFO - relays initialized successfully
+2025-11-24 20:31:41,989 - Bioreactor - INFO - Initializing co2_sensor...
+2025-11-24 20:31:43,004 - Bioreactor.Components - INFO - CO2 sensor initialized on /dev/ttyUSB0 at 9600 baud
+2025-11-24 20:31:43,004 - Bioreactor - INFO - co2_sensor initialized successfully
+2025-11-24 20:31:43,004 - Bioreactor - INFO - Initializing co2_sensor_2...
+2025-11-24 20:31:44,008 - Bioreactor.Components - INFO - CO2 sensor 2 initialized on /dev/ttyUSB1 at 9600 baud
+2025-11-24 20:31:44,008 - Bioreactor - INFO - co2_sensor_2 initialized successfully
+2025-11-24 20:31:44,008 - Bioreactor - INFO - Initializing o2_sensor...
+2025-11-24 20:31:44,013 - Bioreactor.Components - INFO - O2 sensor initialized at address 108
+2025-11-24 20:31:44,013 - Bioreactor - INFO - o2_sensor initialized successfully
+2025-11-24 20:31:44,013 - Bioreactor - INFO - Initializing temp_sensor...
+2025-11-24 20:31:44,018 - Bioreactor.Components - INFO - DS18B20 temperature sensors initialized (1 sensors)
+2025-11-24 20:31:44,018 - Bioreactor - INFO - temp_sensor initialized successfully
+2025-11-24 20:31:44,019 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-24 20:31:44,019 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-24 20:31:44,831 - Bioreactor - INFO - Started 0 job threads.
+2025-11-24 20:31:51,662 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:31:51,662 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:31:51,662 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:31:51,663 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:31:51,663 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:31:51,663 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:31:51,663 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:31:51,663 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:39:12,117 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-24 20:39:12,117 - Bioreactor - INFO - Initializing relays...
+2025-11-24 20:39:12,119 - Bioreactor.Components - INFO - Relay pump_1 initialized on pin 6
+2025-11-24 20:39:12,119 - Bioreactor.Components - INFO - Relay co2_solenoid initialized on pin 13
+2025-11-24 20:39:12,119 - Bioreactor.Components - INFO - Relay dump_valve initialized on pin 19
+2025-11-24 20:39:12,119 - Bioreactor.Components - INFO - Relay relay_4 initialized on pin 26
+2025-11-24 20:39:12,119 - Bioreactor - INFO - relays initialized successfully
+2025-11-24 20:39:12,119 - Bioreactor - INFO - Initializing co2_sensor...
+2025-11-24 20:39:13,135 - Bioreactor.Components - INFO - CO2 sensor initialized on /dev/ttyUSB0 at 9600 baud
+2025-11-24 20:39:13,136 - Bioreactor - INFO - co2_sensor initialized successfully
+2025-11-24 20:39:13,136 - Bioreactor - INFO - Initializing co2_sensor_2...
+2025-11-24 20:39:14,140 - Bioreactor.Components - INFO - CO2 sensor 2 initialized on /dev/ttyUSB1 at 9600 baud
+2025-11-24 20:39:14,140 - Bioreactor - INFO - co2_sensor_2 initialized successfully
+2025-11-24 20:39:14,140 - Bioreactor - INFO - Initializing o2_sensor...
+2025-11-24 20:39:14,144 - Bioreactor.Components - INFO - O2 sensor initialized at address 108
+2025-11-24 20:39:14,144 - Bioreactor - INFO - o2_sensor initialized successfully
+2025-11-24 20:39:14,144 - Bioreactor - INFO - Initializing temp_sensor...
+2025-11-24 20:39:14,150 - Bioreactor.Components - INFO - DS18B20 temperature sensors initialized (1 sensors)
+2025-11-24 20:39:14,150 - Bioreactor - INFO - temp_sensor initialized successfully
+2025-11-24 20:39:14,150 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-24 20:39:14,150 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-24 20:39:14,943 - Bioreactor - INFO - Started 0 job threads.
+2025-11-24 20:39:18,217 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:39:18,217 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:39:18,217 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:39:18,218 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:39:18,218 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:39:18,218 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:39:18,218 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:39:18,218 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:43:28,326 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-24 20:43:28,326 - Bioreactor - INFO - Initializing relays...
+2025-11-24 20:43:28,328 - Bioreactor.Components - INFO - Relay pump_1 initialized on pin 6
+2025-11-24 20:43:28,328 - Bioreactor.Components - INFO - Relay co2_solenoid initialized on pin 13
+2025-11-24 20:43:28,329 - Bioreactor.Components - INFO - Relay dump_valve initialized on pin 19
+2025-11-24 20:43:28,329 - Bioreactor.Components - INFO - Relay relay_4 initialized on pin 26
+2025-11-24 20:43:28,329 - Bioreactor - INFO - relays initialized successfully
+2025-11-24 20:43:28,329 - Bioreactor - INFO - Initializing co2_sensor...
+2025-11-24 20:43:29,344 - Bioreactor.Components - INFO - CO2 sensor initialized on /dev/ttyUSB0 at 9600 baud
+2025-11-24 20:43:29,344 - Bioreactor - INFO - co2_sensor initialized successfully
+2025-11-24 20:43:29,344 - Bioreactor - INFO - Initializing co2_sensor_2...
+2025-11-24 20:43:30,348 - Bioreactor.Components - INFO - CO2 sensor 2 initialized on /dev/ttyUSB1 at 9600 baud
+2025-11-24 20:43:30,349 - Bioreactor - INFO - co2_sensor_2 initialized successfully
+2025-11-24 20:43:30,349 - Bioreactor - INFO - Initializing o2_sensor...
+2025-11-24 20:43:30,352 - Bioreactor.Components - INFO - O2 sensor initialized at address 108
+2025-11-24 20:43:30,353 - Bioreactor - INFO - o2_sensor initialized successfully
+2025-11-24 20:43:30,353 - Bioreactor - INFO - Initializing temp_sensor...
+2025-11-24 20:43:30,358 - Bioreactor.Components - INFO - DS18B20 temperature sensors initialized (1 sensors)
+2025-11-24 20:43:30,358 - Bioreactor - INFO - temp_sensor initialized successfully
+2025-11-24 20:43:30,358 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-24 20:43:30,359 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-24 20:43:31,167 - Bioreactor - INFO - Relay pump_1 state: OFF
+2025-11-24 20:43:31,167 - Bioreactor - INFO - Started 0 job threads.
+2025-11-24 20:45:10,143 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-24 20:45:10,143 - Bioreactor - INFO - Initializing relays...
+2025-11-24 20:45:10,145 - Bioreactor.Components - ERROR - Relay initialization failed: 'GPIO busy'
+2025-11-24 20:45:10,145 - Bioreactor - ERROR - relays initialization failed: 'GPIO busy'
+2025-11-24 20:45:10,145 - Bioreactor - INFO - Initializing co2_sensor...
+2025-11-24 20:45:11,149 - Bioreactor.Components - INFO - CO2 sensor initialized on /dev/ttyUSB0 at 9600 baud
+2025-11-24 20:45:11,149 - Bioreactor - INFO - co2_sensor initialized successfully
+2025-11-24 20:45:11,149 - Bioreactor - INFO - Initializing co2_sensor_2...
+2025-11-24 20:45:12,151 - Bioreactor.Components - INFO - CO2 sensor 2 initialized on /dev/ttyUSB1 at 9600 baud
+2025-11-24 20:45:12,151 - Bioreactor - INFO - co2_sensor_2 initialized successfully
+2025-11-24 20:45:12,151 - Bioreactor - INFO - Initializing o2_sensor...
+2025-11-24 20:45:12,155 - Bioreactor.Components - INFO - O2 sensor initialized at address 108
+2025-11-24 20:45:12,155 - Bioreactor - INFO - o2_sensor initialized successfully
+2025-11-24 20:45:12,155 - Bioreactor - INFO - Initializing temp_sensor...
+2025-11-24 20:45:12,160 - Bioreactor.Components - INFO - DS18B20 temperature sensors initialized (1 sensors)
+2025-11-24 20:45:12,161 - Bioreactor - INFO - temp_sensor initialized successfully
+2025-11-24 20:45:12,161 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-24 20:45:12,161 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-24 20:45:12,161 - Bioreactor - INFO - Reading temperature from sensor 0
+2025-11-24 20:45:12,959 - Bioreactor - INFO - Temperature: 21.875
+2025-11-24 20:45:12,959 - Bioreactor - WARNING - Relays not initialized
+2025-11-24 20:45:12,959 - Bioreactor - INFO - Started 0 job threads.
+2025-11-24 20:45:53,171 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:45:53,171 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:45:53,171 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:45:53,171 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:45:53,171 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:45:53,171 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:45:53,171 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:45:53,172 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:45:57,819 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-24 20:45:57,819 - Bioreactor - INFO - Initializing relays...
+2025-11-24 20:45:57,821 - Bioreactor.Components - INFO - Relay pump_1 initialized on pin 6
+2025-11-24 20:45:57,821 - Bioreactor.Components - INFO - Relay co2_solenoid initialized on pin 13
+2025-11-24 20:45:57,821 - Bioreactor.Components - INFO - Relay dump_valve initialized on pin 19
+2025-11-24 20:45:57,821 - Bioreactor.Components - INFO - Relay relay_4 initialized on pin 26
+2025-11-24 20:45:57,821 - Bioreactor - INFO - relays initialized successfully
+2025-11-24 20:45:57,821 - Bioreactor - INFO - Initializing co2_sensor...
+2025-11-24 20:46:02,955 - Bioreactor.Components - ERROR - CO2 sensor initialization failed: [Errno 5] could not open port /dev/ttyUSB0: [Errno 5] Input/output error: '/dev/ttyUSB0'
+2025-11-24 20:46:02,955 - Bioreactor - ERROR - co2_sensor initialization failed: [Errno 5] could not open port /dev/ttyUSB0: [Errno 5] Input/output error: '/dev/ttyUSB0'
+2025-11-24 20:46:02,955 - Bioreactor - INFO - Initializing co2_sensor_2...
+2025-11-24 20:46:09,081 - Bioreactor.Components - INFO - CO2 sensor 2 initialized on /dev/ttyUSB1 at 9600 baud
+2025-11-24 20:46:09,082 - Bioreactor - INFO - co2_sensor_2 initialized successfully
+2025-11-24 20:46:09,082 - Bioreactor - INFO - Initializing o2_sensor...
+2025-11-24 20:46:09,087 - Bioreactor.Components - INFO - O2 sensor initialized at address 108
+2025-11-24 20:46:09,087 - Bioreactor - INFO - o2_sensor initialized successfully
+2025-11-24 20:46:09,087 - Bioreactor - INFO - Initializing temp_sensor...
+2025-11-24 20:46:09,095 - Bioreactor.Components - INFO - DS18B20 temperature sensors initialized (1 sensors)
+2025-11-24 20:46:09,095 - Bioreactor - INFO - temp_sensor initialized successfully
+2025-11-24 20:46:09,096 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-24 20:46:09,096 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-24 20:46:09,096 - Bioreactor - INFO - Reading temperature from sensor 0
+2025-11-24 20:46:09,887 - Bioreactor - INFO - Temperature: 21.875
+2025-11-24 20:46:09,887 - Bioreactor - INFO - Relay pump_1 state: OFF
+2025-11-24 20:46:09,887 - Bioreactor - INFO - Started 0 job threads.
+2025-11-24 20:46:17,789 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:46:17,789 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:46:17,789 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:46:17,789 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:46:17,789 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:46:17,789 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:46:17,789 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:46:17,790 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:46:35,597 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-24 20:46:35,597 - Bioreactor - INFO - Initializing relays...
+2025-11-24 20:46:35,599 - Bioreactor.Components - INFO - Relay pump_1 initialized on pin 6
+2025-11-24 20:46:35,599 - Bioreactor.Components - INFO - Relay co2_solenoid initialized on pin 13
+2025-11-24 20:46:35,599 - Bioreactor.Components - INFO - Relay dump_valve initialized on pin 19
+2025-11-24 20:46:35,599 - Bioreactor.Components - INFO - Relay relay_4 initialized on pin 26
+2025-11-24 20:46:35,599 - Bioreactor - INFO - relays initialized successfully
+2025-11-24 20:46:35,599 - Bioreactor - INFO - Initializing co2_sensor...
+2025-11-24 20:46:40,843 - Bioreactor.Components - ERROR - CO2 sensor initialization failed: [Errno 5] could not open port /dev/ttyUSB0: [Errno 5] Input/output error: '/dev/ttyUSB0'
+2025-11-24 20:46:40,843 - Bioreactor - ERROR - co2_sensor initialization failed: [Errno 5] could not open port /dev/ttyUSB0: [Errno 5] Input/output error: '/dev/ttyUSB0'
+2025-11-24 20:46:40,843 - Bioreactor - INFO - Initializing co2_sensor_2...
+2025-11-24 20:46:46,969 - Bioreactor.Components - INFO - CO2 sensor 2 initialized on /dev/ttyUSB1 at 9600 baud
+2025-11-24 20:46:46,970 - Bioreactor - INFO - co2_sensor_2 initialized successfully
+2025-11-24 20:46:46,970 - Bioreactor - INFO - Initializing o2_sensor...
+2025-11-24 20:46:46,975 - Bioreactor.Components - INFO - O2 sensor initialized at address 108
+2025-11-24 20:46:46,975 - Bioreactor - INFO - o2_sensor initialized successfully
+2025-11-24 20:46:46,975 - Bioreactor - INFO - Initializing temp_sensor...
+2025-11-24 20:46:46,983 - Bioreactor.Components - INFO - DS18B20 temperature sensors initialized (1 sensors)
+2025-11-24 20:46:46,983 - Bioreactor - INFO - temp_sensor initialized successfully
+2025-11-24 20:46:46,983 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-24 20:46:46,983 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-24 20:46:46,984 - Bioreactor - INFO - Reading temperature from sensor 0
+2025-11-24 20:46:47,775 - Bioreactor - INFO - Temperature: 21.875
+2025-11-24 20:46:47,775 - Bioreactor - INFO - Relay pump_1 state: OFF
+2025-11-24 20:46:47,775 - Bioreactor - INFO - Started 0 job threads.
+2025-11-24 20:48:53,742 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-24 20:48:53,743 - Bioreactor - INFO - Initializing relays...
+2025-11-24 20:48:53,745 - Bioreactor.Components - INFO - Relay pump_1 initialized on pin 6
+2025-11-24 20:48:53,745 - Bioreactor.Components - INFO - Relay co2_solenoid initialized on pin 13
+2025-11-24 20:48:53,745 - Bioreactor.Components - INFO - Relay dump_valve initialized on pin 19
+2025-11-24 20:48:53,745 - Bioreactor.Components - INFO - Relay relay_4 initialized on pin 26
+2025-11-24 20:48:53,745 - Bioreactor - INFO - relays initialized successfully
+2025-11-24 20:48:53,745 - Bioreactor - INFO - Initializing co2_sensor...
+2025-11-24 20:48:54,762 - Bioreactor.Components - INFO - CO2 sensor initialized on /dev/ttyUSB0 at 9600 baud
+2025-11-24 20:48:54,763 - Bioreactor - INFO - co2_sensor initialized successfully
+2025-11-24 20:48:54,763 - Bioreactor - INFO - Initializing co2_sensor_2...
+2025-11-24 20:48:55,767 - Bioreactor.Components - INFO - CO2 sensor 2 initialized on /dev/ttyUSB1 at 9600 baud
+2025-11-24 20:48:55,767 - Bioreactor - INFO - co2_sensor_2 initialized successfully
+2025-11-24 20:48:55,767 - Bioreactor - INFO - Initializing o2_sensor...
+2025-11-24 20:48:55,771 - Bioreactor.Components - INFO - O2 sensor initialized at address 108
+2025-11-24 20:48:55,771 - Bioreactor - INFO - o2_sensor initialized successfully
+2025-11-24 20:48:55,771 - Bioreactor - INFO - Initializing temp_sensor...
+2025-11-24 20:48:55,776 - Bioreactor.Components - INFO - DS18B20 temperature sensors initialized (1 sensors)
+2025-11-24 20:48:55,777 - Bioreactor - INFO - temp_sensor initialized successfully
+2025-11-24 20:48:55,777 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-24 20:48:55,777 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-24 20:48:55,777 - Bioreactor - INFO - Reading temperature from sensor 0
+2025-11-24 20:48:56,579 - Bioreactor - INFO - Temperature: 21.875
+2025-11-24 20:48:56,579 - Bioreactor - INFO - Relay pump_1 state: OFF
+2025-11-24 20:48:56,579 - Bioreactor - INFO - Started 0 job threads.
+2025-11-24 20:49:22,137 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:49:22,137 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:49:22,137 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:49:22,138 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-24 20:49:22,138 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-24 20:49:22,138 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-24 20:49:22,138 - Bioreactor - INFO - Data file closed.
+2025-11-24 20:49:22,138 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:22:31,827 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:22:31,827 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:22:31,827 - Bioreactor.Components - ERROR - Peltier driver dependencies missing: No module named 'lgpio'
+2025-11-26 09:22:31,827 - Bioreactor - ERROR - peltier_driver initialization failed: No module named 'lgpio'
+2025-11-26 09:22:31,828 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:22:31,828 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:22:31,828 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:22:41,211 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:22:41,211 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:22:41,211 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:22:41,211 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:22:41,214 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:22:41,214 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:22:41,214 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:22:41,214 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:25:07,790 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:25:07,791 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:25:07,792 - Bioreactor.Components - ERROR - Peltier driver dependencies missing: No module named 'lgpio'
+2025-11-26 09:25:07,792 - Bioreactor - ERROR - peltier_driver initialization failed: No module named 'lgpio'
+2025-11-26 09:25:07,792 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:25:07,792 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:25:07,792 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:35:00,248 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:35:00,249 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:35:00,249 - Bioreactor.Components - ERROR - Peltier driver dependencies missing: No module named 'lgpio'
+2025-11-26 09:35:00,249 - Bioreactor - ERROR - peltier_driver initialization failed: No module named 'lgpio'
+2025-11-26 09:35:00,249 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:35:00,249 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:35:00,249 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:35:24,152 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:35:24,153 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:35:24,158 - Bioreactor.Components - INFO - Peltier driver initialized (PWM pin 12, DIR pin 16, 1000 Hz)
+2025-11-26 09:35:24,158 - Bioreactor - INFO - peltier_driver initialized successfully
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Peltier set to 25.0% duty, direction forward
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:35:24,159 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:41:02,060 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:45:14,485 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:45:14,485 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:45:14,488 - Bioreactor.Components - INFO - Peltier driver initialized (PWM pin 12, DIR pin 16, 1000 Hz)
+2025-11-26 09:45:14,488 - Bioreactor - INFO - peltier_driver initialized successfully
+2025-11-26 09:45:14,488 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:45:14,488 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:45:14,488 - Bioreactor - INFO - Peltier set to 25.0% duty, direction forward
+2025-11-26 09:45:16,489 - Bioreactor - INFO - Peltier set to 25.0% duty, direction reverse
+2025-11-26 09:45:18,489 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:45:18,489 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:45:42,506 - Bioreactor - INFO - Initializing Bioreactor...
+2025-11-26 09:45:42,506 - Bioreactor - INFO - Initializing peltier_driver...
+2025-11-26 09:45:42,510 - Bioreactor.Components - INFO - Peltier driver initialized (PWM pin 12, DIR pin 16, 1000 Hz)
+2025-11-26 09:45:42,510 - Bioreactor - INFO - peltier_driver initialized successfully
+2025-11-26 09:45:42,511 - Bioreactor - INFO - Data logging to: bioreactor_data/bioreactor_data.csv
+2025-11-26 09:45:42,511 - Bioreactor - INFO - Bioreactor initialization complete.
+2025-11-26 09:45:42,511 - Bioreactor - INFO - Peltier set to 25.0% duty, direction forward
+2025-11-26 09:45:52,511 - Bioreactor - INFO - Peltier set to 25.0% duty, direction reverse
+2025-11-26 09:46:02,512 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:46:02,512 - Bioreactor - INFO - Started 0 job threads.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Bioreactor cleanup complete.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Cleaning up Bioreactor...
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Stop event set for all threads.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Data file closed.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Peltier PWM stopped.
+2025-11-26 09:46:08,647 - Bioreactor - INFO - Bioreactor cleanup complete.

@@ -17,25 +17,25 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import Bioreactor, Config
 from src.utils import *
+from src.io import *
 
 # Load default config
 config = Config()
 
 # Override some settings in the configuration
 config.INIT_COMPONENTS = {
-    'relays': True,
-    'co2_sensor': True,
-    'co2_sensor_2': True,  # Enable second CO2 sensor on /dev/ttyUSB1
-    'o2_sensor': True,  # Enable O2 sensor for plotting
+    'relays': False,
+    'co2_sensor': False,
+    'co2_sensor_2': False,  # Enable second CO2 sensor on /dev/ttyUSB1
+    'o2_sensor': False,  # Enable O2 sensor for plotting
     'i2c': False,
-    'temp_sensor': True,
+    'temp_sensor': False,
+    'peltier_driver': True,
+    'stirrer': True,
 }
 
 config.RELAY_PINS = [6, 13, 19, 26]
 config.RELAY_NAMES = ['pump_1', 'co2_solenoid', 'dump_valve', 'relay_4']
-# CO2 sensor uses serial (default: /dev/ttyUSB0 at 9600 baud)
-# config.CO2_SERIAL_PORT = '/dev/ttyUSB0'
-# config.CO2_SERIAL_BAUDRATE = 9600
 
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
 config.LOG_FILE = 'bioreactor.log'  # Also log to file
@@ -67,8 +67,32 @@ with Bioreactor(config) as reactor:
         # (read_sensors_and_plot, 5, True),  # Read sensors and update plot every 5 seconds
 
     ]
-    from src.io import get_temperature
-    print(get_temperature(reactor, 0))
+    if reactor.is_component_initialized('temp_sensor'):
+        print(f"Temperature: {get_temperature(reactor, 0)}")
+    
+    # Use RelayController for clean API (recommended)
+    if reactor.is_component_initialized('relays'):
+        print(f"pump_1: {'on' if reactor.relay_controller.get_state('pump_1') else 'off'}")
+        # Other examples:
+        # reactor.relay_controller.on('pump_1')      # Turn relay ON
+        # reactor.relay_controller.off('pump_1')     # Turn relay OFF
+        # reactor.relay_controller.all_on()          # Turn all relays ON
+        # reactor.relay_controller.get_all_states()   # Get all relay states
+    
+    if reactor.is_component_initialized('peltier_driver'):
+        set_peltier_power(reactor, 25, 'heat')
+        time.sleep(10)
+        set_peltier_power(reactor, 25, 'cool')
+        time.sleep(10)
+        print("Peltier set to 25% duty (heat direction)")
+        stop_peltier(reactor)
+    
+    if reactor.is_component_initialized('stirrer'):
+        set_stirrer_speed(reactor, 50)
+        print("Stirrer running at 50% duty")
+        time.sleep(5)
+        stop_stirrer(reactor)
+    
     # You can also call functions directly (not as scheduled jobs):
     # flush_tank(reactor, 30)  # Flush tank once with 30s valve open
     # inject_co2_delayed(reactor, 300, 30)  # Wait 5 min (300s), inject CO2 for 30s (one-time)
