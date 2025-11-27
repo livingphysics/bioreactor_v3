@@ -31,6 +31,7 @@ config.INIT_COMPONENTS = {
     'i2c': False,
     'temp_sensor': False,
     'peltier_driver': True,
+    'stirrer': True,
 }
 
 config.RELAY_PINS = [6, 13, 19, 26]
@@ -85,6 +86,12 @@ with Bioreactor(config) as reactor:
         time.sleep(10)
         print("Peltier set to 25% duty (heat direction)")
         stop_peltier(reactor)
+    
+    if reactor.is_component_initialized('stirrer'):
+        set_stirrer_speed(reactor, 50)
+        print("Stirrer running at 50% duty")
+        time.sleep(5)
+        stop_stirrer(reactor)
     
     # You can also call functions directly (not as scheduled jobs):
     # flush_tank(reactor, 30)  # Flush tank once with 30s valve open

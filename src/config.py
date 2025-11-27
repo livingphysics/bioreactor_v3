@@ -27,6 +27,7 @@ class Config:
         'i2c': False,  # Only needed if other I2C components are used
         'temp_sensor': True,
         'peltier_driver': True,  # Enable PWM peltier driver (uses lgpio)
+        'stirrer': True,  # PWM stirrer driver
     }
     
     # Relay Configuration
@@ -55,3 +56,8 @@ class Config:
     PELTIER_PWM_PIN: int = 12  # BCM pin for PWM output
     PELTIER_DIR_PIN: int = 16  # BCM pin for direction control
     PELTIER_PWM_FREQ: int = 1000  # PWM frequency in Hz
+
+    # Stirrer Configuration (PWM only)
+    STIRRER_PWM_PIN: int = 25  # BCM pin for stirrer PWM output
+    STIRRER_PWM_FREQ: int = 1000  # PWM frequency in Hz
+    STIRRER_DEFAULT_DUTY: float = 0.0  # Default duty cycle (0-100)

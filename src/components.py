@@ -249,6 +249,50 @@ def init_peltier_driver(bioreactor, config):
     logger.info(f"Peltier driver initialized (PWM pin {pwm_pin}, DIR pin {dir_pin}, {frequency} Hz)")
     return {'initialized': True, 'driver': driver}
 
+
+def init_stirrer(bioreactor, config):
+    """
+    Initialize PWM stirrer driver using lgpio (Pi 5 compatible).
+    """
+    try:
+        import lgpio
+        from .io import StirrerDriver
+    except Exception as import_error:
+        logger.error(f"Stirrer driver dependencies missing: {import_error}")
+        return {'initialized': False, 'error': str(import_error)}
+
+    pwm_pin = getattr(config, 'STIRRER_PWM_PIN', None)
+    frequency = getattr(config, 'STIRRER_PWM_FREQ', 1000)
+    default_duty = getattr(config, 'STIRRER_DEFAULT_DUTY', 0.0)
+
+    if pwm_pin is None:
+        error_msg = "STIRRER_PWM_PIN must be set in Config"
+        logger.error(error_msg)
+        return {'initialized': False, 'error': error_msg}
+
+    gpio_chip = getattr(bioreactor, 'gpio_chip', None)
+    if gpio_chip is None:
+        try:
+            gpio_chip = lgpio.gpiochip_open(4)
+        except Exception:
+            gpio_chip = lgpio.gpiochip_open(0)
+        bioreactor.gpio_chip = gpio_chip
+
+    try:
+        lgpio.gpio_claim_output(gpio_chip, pwm_pin, 0)
+        lgpio.tx_pwm(gpio_chip, pwm_pin, frequency, 0)
+    except Exception as e:
+        logger.error(f"Stirrer GPIO setup failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+    driver = StirrerDriver(bioreactor, gpio_chip, pwm_pin, frequency, default_duty)
+    bioreactor.stirrer_driver = driver
+    logger.info(f"Stirrer driver initialized (PWM pin {pwm_pin}, {frequency} Hz)")
+    if default_duty:
+        driver.set_speed(default_duty)
+
+    return {'initialized': True, 'driver': driver}
+
 # Component registry - maps component names to initialization functions
 COMPONENT_REGISTRY = {
     'relays': init_relays,
@@ -258,5 +302,6 @@ COMPONENT_REGISTRY = {
     'i2c': init_i2c,
     'temp_sensor': init_temp_sensor,
     'peltier_driver': init_peltier_driver,
+    'stirrer': init_stirrer,
 }
 

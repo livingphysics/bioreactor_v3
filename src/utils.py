@@ -15,7 +15,7 @@ logger = logging.getLogger("Bioreactor.Utils")
 def set_peltier_power(bioreactor, duty_cycle: Union[int, float], forward: Union[bool, str] = True) -> bool:
     """
     Set the PWM duty cycle and direction for the peltier driver.
-
+    
     Args:
         bioreactor: Bioreactor instance
         duty_cycle: Target duty percentage (0-100)
@@ -44,7 +44,7 @@ def set_peltier_power(bioreactor, duty_cycle: Union[int, float], forward: Union[
 def stop_peltier(bioreactor) -> None:
     """
     Stop PWM output on the peltier driver, if available.
-
+    
     Args:
         bioreactor: Bioreactor instance
     """
@@ -55,4 +55,30 @@ def stop_peltier(bioreactor) -> None:
         driver.stop()
     except Exception as e:
         bioreactor.logger.error(f"Failed to stop peltier driver: {e}")
+
+
+def set_stirrer_speed(bioreactor, duty_cycle: Union[int, float]) -> bool:
+    """
+    Set stirrer PWM duty cycle.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        duty_cycle: Target duty (0-100)
+    """
+    driver = getattr(bioreactor, 'stirrer_driver', None)
+    if not bioreactor.is_component_initialized('stirrer') or driver is None:
+        bioreactor.logger.warning("Stirrer driver not initialized; skipping command.")
+        return False
+    return driver.set_speed(duty_cycle)
+
+
+def stop_stirrer(bioreactor) -> None:
+    """Stop stirrer PWM output."""
+    driver = getattr(bioreactor, 'stirrer_driver', None)
+    if not driver:
+        return
+    try:
+        driver.stop()
+    except Exception as e:
+        bioreactor.logger.error(f"Failed to stop stirrer: {e}")
 

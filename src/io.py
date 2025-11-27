@@ -200,6 +200,53 @@ class PeltierDriver:
     def is_active(self) -> bool:
         return self._last_duty > 0.0
 
+
+class StirrerDriver:
+    """Single-pin PWM stirrer controller using lgpio."""
+
+    def __init__(self, bioreactor, gpio_chip, pwm_pin: int, frequency: int, default_duty: float = 0.0):
+        self.bioreactor = bioreactor
+        self._gpio_chip = gpio_chip
+        self._pwm_pin = pwm_pin
+        self._frequency = frequency
+        self._duty = max(0.0, min(100.0, float(default_duty)))
+
+    def set_speed(self, duty_cycle: float) -> bool:
+        """Set stirrer PWM duty cycle (0-100)."""
+        try:
+            import lgpio
+        except Exception as e:
+            self.bioreactor.logger.error(f"Stirrer driver requires lgpio: {e}")
+            return False
+
+        try:
+            duty = max(0.0, min(100.0, float(duty_cycle)))
+        except (TypeError, ValueError):
+            raise ValueError("Duty cycle must be numeric between 0 and 100") from None
+
+        try:
+            lgpio.tx_pwm(self._gpio_chip, self._pwm_pin, self._frequency, duty)
+            self._duty = duty
+            self.bioreactor.logger.info(f"Stirrer duty set to {duty:.1f}%")
+            return True
+        except Exception as e:
+            self.bioreactor.logger.error(f"Failed to update stirrer PWM: {e}")
+            return False
+
+    def stop(self) -> None:
+        """Stop stirrer (0% duty)."""
+        try:
+            import lgpio
+            lgpio.tx_pwm(self._gpio_chip, self._pwm_pin, self._frequency, 0)
+            self._duty = 0.0
+            self.bioreactor.logger.info("Stirrer stopped (0% duty).")
+        except Exception as e:
+            self.bioreactor.logger.error(f"Failed to stop stirrer: {e}")
+
+    @property
+    def duty_cycle(self) -> float:
+        return self._duty
+
 def get_temperature(bioreactor, sensor_index=0):
         """Get temperature from DS18B20 sensor(s).
         

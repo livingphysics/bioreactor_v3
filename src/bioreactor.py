@@ -232,6 +232,14 @@ class Bioreactor():
             except Exception as e:
                 self.logger.error(f"Failed to stop peltier driver: {e}")
 
+        # Stop stirrer PWM if active
+        stirrer_driver = getattr(self, 'stirrer_driver', None)
+        if stirrer_driver:
+            try:
+                stirrer_driver.stop()
+            except Exception as e:
+                self.logger.error(f"Failed to stop stirrer driver: {e}")
+
         self.logger.info("Bioreactor cleanup complete.")
 
     def __enter__(self):
