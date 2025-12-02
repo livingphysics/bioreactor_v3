@@ -1,5 +1,9 @@
 import lgpio
 import time
+import board
+import busio
+
+i2c = busio.I2C(board.SCL, board.SDA)
 
 pwm_pin = 16
 frequency = 50
