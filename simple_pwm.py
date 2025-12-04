@@ -8,8 +8,15 @@ i2c = busio.I2C(board.SCL, board.SDA)
 
 # Initialize ADS1115 ADC
 ads = ADS1115(i2c)
-# Create single-ended input on channel 0
-adc_channel = AnalogIn(ads, ads1x15.Pin.A2)
+# Create single-ended inputs on channels A0, A1, and A2
+adc_channels = {}
+adc_pin_map = {
+	'A0': ads1x15.Pin.A0,
+	'A1': ads1x15.Pin.A1,
+	'A2': ads1x15.Pin.A2,
+}
+for channel_name, pin in adc_pin_map.items():
+	adc_channels[channel_name] = AnalogIn(ads, pin)
 
 pwm_pin = 25
 frequency = 500
@@ -21,9 +28,11 @@ lgpio.tx_pwm(gpio_chip, pwm_pin, frequency, 0)
 for duty in [10, 20, 30, 40, 50]:
 	lgpio.tx_pwm(gpio_chip, pwm_pin, frequency, duty)
 	time.sleep(5)
-	# Read ADC value
-	adc_value = adc_channel.value
-	adc_voltage = adc_channel.voltage
-	print(f"PWM Duty: {duty}%, ADC Raw: {adc_value}, ADC Voltage: {adc_voltage:.3f}V")
+	# Read ADC values from all channels
+	print(f"PWM Duty: {duty}%")
+	for channel_name, channel in adc_channels.items():
+		adc_value = channel.value
+		adc_voltage = channel.voltage
+		print(f"  {channel_name} - Raw: {adc_value}, Voltage: {adc_voltage:.3f}V")
 lgpio.tx_pwm(gpio_chip, pwm_pin, frequency, 0)
 
