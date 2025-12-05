@@ -250,12 +250,15 @@ def temperature_pid_controller(
     bioreactor,
     setpoint: float,
     current_temp: Optional[float] = None,
-    kp: float = 10.0,
-    ki: float = 1.0,
+    kp: float = 5.0,
+    ki: float = 0.5,
     kd: float = 0.0,
     dt: Optional[float] = None,
     elapsed: Optional[float] = None,
-    sensor_index: int = 0
+    sensor_index: int = 0,
+    max_duty: float = 80.0,
+    deadband: float = 0.5,
+    integral_max: float = 50.0
 ) -> None:
     """
     PID controller to maintain bioreactor temperature at setpoint by modulating peltier power.
@@ -269,12 +272,15 @@ def temperature_pid_controller(
         bioreactor: Bioreactor instance
         setpoint: Desired temperature (°C)
         current_temp: Measured temperature (°C). If None, reads from temperature sensor.
-        kp: Proportional gain (default: 10.0)
-        ki: Integral gain (default: 1.0)
+        kp: Proportional gain (default: 5.0, reduced from 10.0 to prevent overshoot)
+        ki: Integral gain (default: 0.5, reduced from 1.0 to prevent overshoot)
         kd: Derivative gain (default: 0.0)
         dt: Time elapsed since last call (s). If None, uses elapsed parameter or estimates.
         elapsed: Elapsed time since start (s). Used to estimate dt if dt is None.
         sensor_index: Index of temperature sensor to read (default: 0)
+        max_duty: Maximum duty cycle percentage (default: 80.0, prevents excessive power)
+        deadband: Temperature deadband in °C (default: 0.5, prevents oscillation near setpoint)
+        integral_max: Maximum integral term value (default: 50.0, prevents integral windup)
         
     Note:
         PID state (_temp_integral, _temp_last_error, _temp_last_time) is stored on bioreactor instance.
@@ -285,7 +291,7 @@ def temperature_pid_controller(
         from src.utils import temperature_pid_controller
         
         # Create a partial function with setpoint=37.0°C
-        pid_job = partial(temperature_pid_controller, setpoint=37.0, kp=10.0, ki=1.0, kd=0.0)
+        pid_job = partial(temperature_pid_controller, setpoint=37.0, kp=5.0, ki=0.5, kd=0.0)
         
         # Add to jobs list
         jobs = [
@@ -325,8 +331,14 @@ def temperature_pid_controller(
     
     # Only update integral if error is not NaN
     if not np.isnan(error) and not np.isnan(current_temp):
-        # Update integral term
+        # Apply deadband: if error is within deadband, set error to 0 to prevent oscillation
+        if abs(error) < deadband:
+            error = 0.0
+        
+        # Update integral term with windup protection
         bioreactor._temp_integral += error * dt
+        # Clamp integral term to prevent windup
+        bioreactor._temp_integral = max(-integral_max, min(integral_max, bioreactor._temp_integral))
         
         # Calculate derivative term
         derivative = (error - bioreactor._temp_last_error) / dt if dt > 0 else 0.0
@@ -334,8 +346,17 @@ def temperature_pid_controller(
         # Calculate PID output
         output = kp * error + ki * bioreactor._temp_integral + kd * derivative
         
-        # Clamp output to reasonable range and convert to duty cycle (0-100)
-        duty = max(0, min(100, int(abs(output))))
+        # Clamp output to reasonable range before calculating duty
+        # Limit output to prevent excessive power
+        max_output = max_duty * 1.5  # Allow some overshoot in output calculation
+        output = max(-max_output, min(max_output, output))
+        
+        # Convert output to duty cycle (0-100) and clamp to max_duty
+        duty = max(0, min(max_duty, abs(output)))
+        
+        # If error is within deadband, turn off peltier to prevent oscillation
+        if abs(error) < deadband:
+            duty = 0.0
         
         # Determine direction based on PID output:
         # error = setpoint - current_temp
@@ -345,14 +366,21 @@ def temperature_pid_controller(
         
         # Apply peltier control
         if bioreactor.is_component_initialized('peltier_driver'):
-            set_peltier_power(bioreactor, duty, forward=direction)
+            if duty > 0:
+                set_peltier_power(bioreactor, duty, forward=direction)
+            else:
+                # Turn off peltier when duty is 0
+                from .io import stop_peltier
+                stop_peltier(bioreactor)
+            
             bioreactor.logger.info(
                 f"Temperature PID: setpoint={setpoint:.2f}°C, "
                 f"current={current_temp:.2f}°C, "
                 f"error={error:.2f}°C, "
                 f"output={output:.2f}, "
                 f"duty={duty:.1f}%, "
-                f"direction={direction}"
+                f"direction={direction}, "
+                f"integral={bioreactor._temp_integral:.2f}"
             )
         else:
             bioreactor.logger.warning("Peltier driver not initialized; PID controller cannot modulate temperature.")
