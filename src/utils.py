@@ -337,21 +337,22 @@ def temperature_pid_controller(
         # Clamp output to reasonable range and convert to duty cycle (0-100)
         duty = max(0, min(100, int(abs(output))))
         
-        # Determine direction: positive output = forward direction, negative = reverse direction
-        # Note: The actual meaning of forward/reverse depends on peltier wiring
-        # In bioreactorv2, forward=True typically means cooling, forward=False means heating
-        forward = (output >= 0)  # Positive output -> forward direction
+        # Determine direction based on PID output:
+        # error = setpoint - current_temp
+        # If error > 0 (too cold), output > 0, we need to HEAT
+        # If error < 0 (too hot), output < 0, we need to COOL
+        direction = 'heat' if output > 0 else 'cool'
         
         # Apply peltier control
         if bioreactor.is_component_initialized('peltier_driver'):
-            set_peltier_power(bioreactor, duty, forward=forward)
+            set_peltier_power(bioreactor, duty, forward=direction)
             bioreactor.logger.info(
                 f"Temperature PID: setpoint={setpoint:.2f}°C, "
                 f"current={current_temp:.2f}°C, "
                 f"error={error:.2f}°C, "
                 f"output={output:.2f}, "
                 f"duty={duty:.1f}%, "
-                f"direction={'cool' if forward else 'heat'}"
+                f"direction={direction}"
             )
         else:
             bioreactor.logger.warning("Peltier driver not initialized; PID controller cannot modulate temperature.")
