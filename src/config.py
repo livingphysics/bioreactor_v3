@@ -28,6 +28,8 @@ class Config:
         'temp_sensor': True,
         'peltier_driver': True,  # Enable PWM peltier driver (uses lgpio)
         'stirrer': True,  # PWM stirrer driver
+        'led': False,  # LED PWM control
+        'optical_density': False,  # Optical density sensor (ADS1115)
     }
     
     # Relay Configuration
@@ -65,3 +67,14 @@ class Config:
     STIRRER_PWM_PIN: int = 21  # BCM pin for stirrer PWM output
     STIRRER_PWM_FREQ: int = 1000  # PWM frequency in Hz
     STIRRER_DEFAULT_DUTY: float = 20.0  # Default duty cycle (0-100)
+
+    # LED Configuration (PWM control)
+    LED_PWM_PIN: int = 25  # BCM pin for LED PWM output
+    LED_PWM_FREQ: int = 500  # PWM frequency in Hz
+
+    # Optical Density (OD) Configuration (ADS1115 ADC)
+    OD_ADC_CHANNELS: dict[str, str] = {
+        'Trx': 'A0',
+        'Ref': 'A1',
+        'Sct': 'A2',
+    }  # Dictionary mapping channel names to ADS1115 pins (A0-A3)

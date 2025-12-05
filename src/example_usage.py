@@ -32,6 +32,8 @@ config.INIT_COMPONENTS = {
     'temp_sensor': True,
     'peltier_driver': True,
     'stirrer': True,
+    'led': True,  # Enable LED PWM control
+    'optical_density': True,  # Enable optical density sensor (ADS1115)
 }
 
 config.RELAY_PINS = {
@@ -96,6 +98,30 @@ with Bioreactor(config) as reactor:
         print("Stirrer running at 50% duty")
         time.sleep(5)
         stop_stirrer(reactor)
+    
+    # Optical density measurement example
+    if reactor.is_component_initialized('led') and reactor.is_component_initialized('optical_density'):
+        print("Taking OD measurement...")
+        # Measure OD with LED at 50% power, averaging for 2 seconds on single channel
+        od_voltage = measure_od(reactor, led_power=50.0, averaging_duration=2.0, channel_name='Trx')
+        if od_voltage is not None:
+            print(f"OD measurement (Trx channel): {od_voltage:.4f}V")
+        
+        # Example: Measure all channels at once
+        print("Taking OD measurement on all channels...")
+        all_od_results = measure_od(reactor, led_power=50.0, averaging_duration=2.0, channel_name='all')
+        if all_od_results is not None:
+            print("OD measurements (all channels):")
+            for channel, voltage in all_od_results.items():
+                print(f"  {channel}: {voltage:.4f}V")
+        
+        # Example: Read voltage from channels without LED (baseline)
+        ref_voltage = read_voltage(reactor, 'Ref')
+        sct_voltage = read_voltage(reactor, 'Sct')
+        if ref_voltage is not None:
+            print(f"Reference channel voltage (LED off): {ref_voltage:.4f}V")
+        if sct_voltage is not None:
+            print(f"Scatter channel voltage (LED off): {sct_voltage:.4f}V")
     
     # You can also call functions directly (not as scheduled jobs):
     # flush_tank(reactor, 30)  # Flush tank once with 30s valve open
