@@ -179,13 +179,13 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None):
     if len(_plot_data['time']) > 1:
         # Initialize figure if needed
         if _plot_fig is None:
-            _plot_fig, _plot_axes = plt.subplots(3, 1, figsize=(12, 10))
+            _plot_fig, _plot_axes = plt.subplots(2, 2, figsize=(14, 10))
             _plot_fig.suptitle('Live Sensor Monitoring', fontsize=14)
             plt.ion()  # Turn on interactive mode
             plt.show(block=False)
         
-        # Subplot 1: CO2 (both sensors)
-        ax1 = _plot_axes[0]
+        # Top left: CO2 (both sensors)
+        ax1 = _plot_axes[0, 0]
         ax1.clear()
         ax1.set_title('CO2 Concentration')
         ax1.set_ylabel('CO2 (ppm)')
@@ -196,33 +196,39 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None):
             ax1.plot(list(_plot_data['time']), list(_plot_data['co2_2']), 'r--', linewidth=2, label='CO2_2')
         ax1.legend()
         
-        # Subplot 2: O2 and Temperature
-        ax2 = _plot_axes[1]
+        # Top right: O2
+        ax2 = _plot_axes[0, 1]
         ax2.clear()
-        ax2.set_title('O2 and Temperature')
-        ax2.set_ylabel('O2 (%) / Temp (°C)')
+        ax2.set_title('O2 Concentration')
+        ax2.set_ylabel('O2 (%)')
         ax2.grid(True, alpha=0.3)
         if len(_plot_data['o2']) > 0:
             ax2.plot(list(_plot_data['time']), list(_plot_data['o2']), 'r-', linewidth=2, label='O2')
-        if len(_plot_data['temperature']) > 0:
-            ax2_twin = ax2.twinx()
-            ax2_twin.plot(list(_plot_data['time']), list(_plot_data['temperature']), 'g-', linewidth=2, label='Temperature')
-            ax2_twin.set_ylabel('Temperature (°C)')
-            ax2_twin.legend(loc='upper right')
-        ax2.legend(loc='upper left')
+        ax2.legend()
         
-        # Subplot 3: OD voltages
-        ax3 = _plot_axes[2]
+        # Bottom left: Temperature
+        ax3 = _plot_axes[1, 0]
         ax3.clear()
-        ax3.set_title('Optical Density Voltages')
+        ax3.set_title('Temperature')
         ax3.set_xlabel('Time (seconds)')
-        ax3.set_ylabel('Voltage (V)')
+        ax3.set_ylabel('Temperature (°C)')
         ax3.grid(True, alpha=0.3)
-        if len(_plot_data['od_trx']) > 0:
-            ax3.plot(list(_plot_data['time']), list(_plot_data['od_trx']), 'm-', linewidth=2, label='Trx')
-        if len(_plot_data['od_sct']) > 0:
-            ax3.plot(list(_plot_data['time']), list(_plot_data['od_sct']), 'c-', linewidth=2, label='Sct')
+        if len(_plot_data['temperature']) > 0:
+            ax3.plot(list(_plot_data['time']), list(_plot_data['temperature']), 'g-', linewidth=2, label='Temperature')
         ax3.legend()
+        
+        # Bottom right: OD voltages
+        ax4 = _plot_axes[1, 1]
+        ax4.clear()
+        ax4.set_title('Optical Density Voltages')
+        ax4.set_xlabel('Time (seconds)')
+        ax4.set_ylabel('Voltage (V)')
+        ax4.grid(True, alpha=0.3)
+        if len(_plot_data['od_trx']) > 0:
+            ax4.plot(list(_plot_data['time']), list(_plot_data['od_trx']), 'm-', linewidth=2, label='Trx')
+        if len(_plot_data['od_sct']) > 0:
+            ax4.plot(list(_plot_data['time']), list(_plot_data['od_sct']), 'c-', linewidth=2, label='Sct')
+        ax4.legend()
         
         plt.tight_layout()
         plt.draw()
