@@ -239,3 +239,123 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None):
     
     return sensor_data
 
+
+def temperature_pid_controller(
+    bioreactor,
+    setpoint: float,
+    current_temp: Optional[float] = None,
+    kp: float = 10.0,
+    ki: float = 1.0,
+    kd: float = 0.0,
+    dt: Optional[float] = None,
+    elapsed: Optional[float] = None,
+    sensor_index: int = 0
+) -> None:
+    """
+    PID controller to maintain bioreactor temperature at setpoint by modulating peltier power.
+    
+    This composite function:
+    1. Reads current temperature (or uses provided value)
+    2. Calculates PID output based on error (setpoint - current_temp)
+    3. Modulates peltier power and direction based on PID output
+    
+    Args:
+        bioreactor: Bioreactor instance
+        setpoint: Desired temperature (°C)
+        current_temp: Measured temperature (°C). If None, reads from temperature sensor.
+        kp: Proportional gain (default: 10.0)
+        ki: Integral gain (default: 1.0)
+        kd: Derivative gain (default: 0.0)
+        dt: Time elapsed since last call (s). If None, uses elapsed parameter or estimates.
+        elapsed: Elapsed time since start (s). Used to estimate dt if dt is None.
+        sensor_index: Index of temperature sensor to read (default: 0)
+        
+    Note:
+        PID state (_temp_integral, _temp_last_error, _temp_last_time) is stored on bioreactor instance.
+        Initialize these values before first call if needed, or they will be auto-initialized.
+        
+    Example usage as a job:
+        from functools import partial
+        from src.utils import temperature_pid_controller
+        
+        # Create a partial function with setpoint=37.0°C
+        pid_job = partial(temperature_pid_controller, setpoint=37.0, kp=10.0, ki=1.0, kd=0.0)
+        
+        # Add to jobs list
+        jobs = [
+            (pid_job, 1, True),  # Run PID controller every 1 second
+        ]
+        reactor.run(jobs)
+    """
+    from .io import get_temperature, set_peltier_power
+    
+    # Initialize PID state if not present
+    if not hasattr(bioreactor, '_temp_integral'):
+        bioreactor._temp_integral = 0.0
+    if not hasattr(bioreactor, '_temp_last_error'):
+        bioreactor._temp_last_error = 0.0
+    if not hasattr(bioreactor, '_temp_last_time'):
+        bioreactor._temp_last_time = None
+    
+    # Get current temperature if not provided
+    if current_temp is None:
+        current_temp = get_temperature(bioreactor, sensor_index=sensor_index)
+    
+    # Calculate error
+    error = setpoint - current_temp
+    
+    # Calculate dt (time since last call)
+    if dt is None:
+        current_time = elapsed if elapsed is not None else time.time()
+        if bioreactor._temp_last_time is not None:
+            dt = current_time - bioreactor._temp_last_time
+        else:
+            dt = 1.0  # Default to 1 second for first call
+        bioreactor._temp_last_time = current_time
+    else:
+        # Update last_time if elapsed is provided
+        if elapsed is not None:
+            bioreactor._temp_last_time = elapsed
+    
+    # Only update integral if error is not NaN
+    if not np.isnan(error) and not np.isnan(current_temp):
+        # Update integral term
+        bioreactor._temp_integral += error * dt
+        
+        # Calculate derivative term
+        derivative = (error - bioreactor._temp_last_error) / dt if dt > 0 else 0.0
+        
+        # Calculate PID output
+        output = kp * error + ki * bioreactor._temp_integral + kd * derivative
+        
+        # Clamp output to reasonable range and convert to duty cycle (0-100)
+        duty = max(0, min(100, int(abs(output))))
+        
+        # Determine direction: positive output = forward direction, negative = reverse direction
+        # Note: The actual meaning of forward/reverse depends on peltier wiring
+        # In bioreactorv2, forward=True typically means cooling, forward=False means heating
+        forward = (output >= 0)  # Positive output -> forward direction
+        
+        # Apply peltier control
+        if bioreactor.is_component_initialized('peltier_driver'):
+            set_peltier_power(bioreactor, duty, forward=forward)
+            bioreactor.logger.info(
+                f"Temperature PID: setpoint={setpoint:.2f}°C, "
+                f"current={current_temp:.2f}°C, "
+                f"error={error:.2f}°C, "
+                f"output={output:.2f}, "
+                f"duty={duty:.1f}%, "
+                f"direction={'cool' if forward else 'heat'}"
+            )
+        else:
+            bioreactor.logger.warning("Peltier driver not initialized; PID controller cannot modulate temperature.")
+        
+        # Store error for next iteration
+        bioreactor._temp_last_error = error
+    else:
+        # Skip peltier update if error or temperature is NaN
+        bioreactor.logger.warning(
+            f"Temperature PID: NaN detected, skipping update. "
+            f"setpoint={setpoint:.2f}°C, current_temp={current_temp}"
+        )
+

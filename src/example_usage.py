@@ -11,6 +11,7 @@ This shows how to:
 import time
 import sys
 import os
+from functools import partial
 
 # Add parent directory to path to allow imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -71,6 +72,10 @@ with Bioreactor(config) as reactor:
     jobs = [
         # Measure, record, and plot sensors every 5 seconds
         (measure_and_plot_sensors, 5, True),  # Read sensors and update plot every 5 seconds
+        
+        # Temperature PID controller - maintains temperature at 37.0°C
+        # Run PID controller every 1 second
+        (partial(temperature_pid_controller, setpoint=37.0, kp=10.0, ki=1.0, kd=0.0), 1, True),
 
     ]
     # if reactor.is_component_initialized('temp_sensor'):
