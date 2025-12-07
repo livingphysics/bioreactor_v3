@@ -75,7 +75,7 @@ with Bioreactor(config) as reactor:
         
         # Temperature PID controller - maintains temperature at 37.0°C
         # Run PID controller every 1 second
-        (partial(temperature_pid_controller, setpoint=37.0, kp=10.0, ki=1.0, kd=0.0), 1, True),
+        (partial(temperature_pid_controller, setpoint=37.0, kp=3.0, ki=0.3, kd=0.0), 1, True),
 
     ]
     # if reactor.is_component_initialized('temp_sensor'):

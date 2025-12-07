@@ -257,12 +257,10 @@ def temperature_pid_controller(
     elapsed: Optional[float] = None,
     sensor_index: int = 0,
     max_duty: float = 70.0,
-    deadband: float = 0.3,
-    integral_max: float = 60.0,
     derivative_alpha: float = 0.7
 ) -> None:
     """
-    PID controller to maintain bioreactor temperature at setpoint by modulating peltier power.
+    Pure PID controller to maintain bioreactor temperature at setpoint by modulating peltier power.
     
     This composite function:
     1. Reads current temperature (or uses provided value)
@@ -273,15 +271,13 @@ def temperature_pid_controller(
         bioreactor: Bioreactor instance
         setpoint: Desired temperature (°C)
         current_temp: Measured temperature (°C). If None, reads from temperature sensor.
-        kp: Proportional gain (default: 5.0, reduced from 10.0 to prevent overshoot)
-        ki: Integral gain (default: 0.3, reduced to minimize ringing)
-        kd: Derivative gain (default: 2.0, helps reduce oscillation and overshoot)
+        kp: Proportional gain (default: 5.0)
+        ki: Integral gain (default: 0.3)
+        kd: Derivative gain (default: 2.0)
         dt: Time elapsed since last call (s). If None, uses elapsed parameter or estimates.
         elapsed: Elapsed time since start (s). Used to estimate dt if dt is None.
         sensor_index: Index of temperature sensor to read (default: 0)
-        max_duty: Maximum duty cycle percentage (default: 70.0, reduced to prevent overshoot)
-        deadband: Temperature deadband in °C (default: 0.3, tighter to reduce oscillation)
-        integral_max: Maximum integral term value (default: 30.0, reduced to prevent windup)
+        max_duty: Maximum duty cycle percentage (default: 70.0, hardware safety limit)
         derivative_alpha: Derivative filter coefficient (default: 0.7, 0-1, higher = less filtering)
         
     Note:
@@ -333,18 +329,10 @@ def temperature_pid_controller(
         if elapsed is not None:
             bioreactor._temp_last_time = elapsed
     
-    # Only update integral if error is not NaN
+    # Only update PID if error is not NaN
     if not np.isnan(error) and not np.isnan(current_temp):
-        # Apply deadband: if error is within deadband, set error to 0 to prevent oscillation
-        if abs(error) < deadband:
-            error = 0.0
-        
-        # Update integral term with windup protection
-        # Only accumulate integral when error is significant (outside deadband)
-        if abs(error) >= deadband:
-            bioreactor._temp_integral += error * dt
-        # Clamp integral term to prevent windup
-        bioreactor._temp_integral = max(-integral_max, min(integral_max, bioreactor._temp_integral))
+        # Update integral term (pure PID - no clamping)
+        bioreactor._temp_integral += error * dt
         
         # Calculate derivative term with low-pass filtering to reduce noise sensitivity
         raw_derivative = (error - bioreactor._temp_last_error) / dt if dt > 0 else 0.0
@@ -352,20 +340,11 @@ def temperature_pid_controller(
         derivative = derivative_alpha * bioreactor._temp_last_derivative + (1 - derivative_alpha) * raw_derivative
         bioreactor._temp_last_derivative = derivative
         
-        # Calculate PID output
+        # Calculate PID output (pure PID formula)
         output = kp * error + ki * bioreactor._temp_integral + kd * derivative
         
-        # Clamp output to reasonable range before calculating duty
-        # Limit output to prevent excessive power
-        max_output = max_duty * 1.5  # Allow some overshoot in output calculation
-        output = max(-max_output, min(max_output, output))
-        
-        # Convert output to duty cycle (0-100) and clamp to max_duty
+        # Convert output to duty cycle (0-100) and clamp to max_duty (hardware safety limit)
         duty = max(0, min(max_duty, abs(output)))
-        
-        # If error is within deadband, turn off peltier to prevent oscillation
-        if abs(error) < deadband:
-            duty = 0.0
         
         # Determine direction based on PID output:
         # error = setpoint - current_temp
