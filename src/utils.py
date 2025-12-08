@@ -440,3 +440,51 @@ def pressurize_and_inject_co2(
         except:
             pass
 
+
+def inject_co2_delayed(
+    bioreactor,
+    delay_seconds: float = 0.0,
+    injection_duration_seconds: float = 1.0,
+    elapsed: Optional[float] = None
+) -> None:
+    """
+    Wait for specified delay, then inject CO2 for specified duration.
+    This is a one-time job that completes after the injection.
+    
+    Sequence:
+    1. Wait for delay_seconds
+    2. Turn ON co2_solenoid relay for injection_duration_seconds
+    3. Turn OFF co2_solenoid relay
+    4. Job completes
+    
+    Args:
+        bioreactor: Bioreactor instance
+        delay_seconds: Time to wait before starting CO2 injection (default: 0.0 seconds)
+        injection_duration_seconds: Duration to keep CO2 solenoid ON (default: 1.0 seconds)
+        elapsed: Time elapsed since job started (optional)
+    """
+    if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
+        bioreactor.logger.warning("Relays not initialized or RelayController not available")
+        return
+    
+    try:
+        # Wait for specified delay
+        if delay_seconds > 0:
+            bioreactor.logger.info(f"Waiting {delay_seconds}s before CO2 injection...")
+            time.sleep(delay_seconds)
+        
+        # Inject CO2
+        bioreactor.logger.info(f"Starting CO2 injection ({injection_duration_seconds}s)...")
+        bioreactor.relay_controller.on('co2_solenoid')
+        time.sleep(injection_duration_seconds)
+        bioreactor.relay_controller.off('co2_solenoid')
+        bioreactor.logger.info("CO2 injection complete")
+        
+    except Exception as e:
+        bioreactor.logger.error(f"Error during CO2 injection: {e}")
+        # Emergency shutdown
+        try:
+            bioreactor.relay_controller.off('co2_solenoid')
+        except:
+            pass
+
