@@ -563,6 +563,70 @@ def inject_co2_delayed(
         bioreactor._co2_injection_completed = True
 
 
+def flush_tank(
+    bioreactor,
+    duration_seconds: float,
+    elapsed: Optional[float] = None
+) -> None:
+    """
+    Flush tank by running pump_1 and opening dump_valve for specified duration,
+    then closing valve and continuing pump for the same duration.
+    
+    Sequence:
+    1. Turn ON pump_1
+    2. Turn ON dump_valve (valve opens)
+    3. Wait for duration_seconds
+    4. Turn OFF dump_valve (valve closes)
+    5. Continue running pump_1 for additional duration_seconds
+    6. Turn OFF pump_1
+    
+    Args:
+        bioreactor: Bioreactor instance
+        duration_seconds: Duration to keep valve open and continue pump after closing (in seconds)
+        elapsed: Time elapsed since job started (optional)
+    """
+    if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
+        bioreactor.logger.warning("Relays not initialized or RelayController not available")
+        return
+    
+    try:
+        bioreactor.logger.info(f"Starting tank flush: pump ON, valve opening for {duration_seconds}s")
+        
+        # Step 1: Turn ON pump_1
+        bioreactor.relay_controller.on('pump_1')
+        bioreactor.logger.info("pump_1 turned ON")
+        
+        # Step 2: Turn ON dump_valve (valve opens)
+        bioreactor.relay_controller.on('dump_valve')
+        bioreactor.logger.info("dump_valve turned ON (valve open)")
+        
+        # Step 3: Wait for specified duration
+        time.sleep(duration_seconds)
+        bioreactor.logger.info(f"Valve open duration ({duration_seconds}s) completed")
+        
+        # Step 4: Turn OFF dump_valve (valve closes)
+        bioreactor.relay_controller.off('dump_valve')
+        bioreactor.logger.info("dump_valve turned OFF (valve closed)")
+        
+        # Step 5: Continue running pump_1 for additional duration_seconds
+        bioreactor.logger.info(f"Continuing pump for additional {duration_seconds} seconds")
+        time.sleep(duration_seconds)
+        
+        # Step 6: Turn OFF pump_1
+        bioreactor.relay_controller.off('pump_1')
+        bioreactor.logger.info("pump_1 turned OFF - Tank flush complete")
+        
+    except Exception as e:
+        bioreactor.logger.error(f"Error during tank flush: {e}")
+        # Emergency shutdown - turn off both relays
+        try:
+            bioreactor.relay_controller.off('pump_1')
+            bioreactor.relay_controller.off('dump_valve')
+            bioreactor.logger.info("Emergency: Both relays turned OFF")
+        except:
+            pass
+
+
 def stabilize_co2(
     bioreactor,
     pressurize_duration: float = 10.0,

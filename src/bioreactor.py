@@ -100,6 +100,18 @@ class Bioreactor():
 
         self.logger.info("Bioreactor initialization complete.")
         
+        # Auto-flush on initialization if enabled (runs before pressurization)
+        auto_flush = getattr(config, 'AUTO_FLUSH_ON_INIT', False) if config else False
+        if auto_flush and self.is_component_initialized('relays'):
+            try:
+                from .utils import flush_tank
+                flush_duration = getattr(config, 'AUTO_FLUSH_DURATION', 30.0) if config else 30.0
+                self.logger.info(f"Starting automatic tank flush (duration: {flush_duration}s)...")
+                flush_tank(self, duration_seconds=flush_duration)
+                self.logger.info("Automatic tank flush completed.")
+            except Exception as e:
+                self.logger.error(f"Error during automatic tank flush: {e}")
+        
         # Auto-pressurize on initialization if enabled
         auto_pressurize = getattr(config, 'AUTO_PRESSURIZE_ON_INIT', False) if config else False
         if auto_pressurize and self.is_component_initialized('relays'):
