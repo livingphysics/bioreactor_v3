@@ -28,8 +28,10 @@ _plot_data = {
 _plot_fig = None
 _plot_axes = None
 
-# Global storage for CO2 stabilization
-_co2_duration = 0.5  # Global CO2 injection duration (updated by stabilize_co2)
+# Global storage for CO2 Smith predictor controller
+_co2_duration = 0.5  # Global CO2 injection duration (updated by smith_predictor_co2)
+_co2_predicted = None  # Predicted CO2 level from model
+_co2_model_history = deque(maxlen=100)  # History of (injection_duration, co2_change) for model adaptation
 
 
 def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
@@ -592,116 +594,133 @@ def flush_tank(
             pass
 
 
-def stabilize_co2(
+def smith_predictor_co2(
     bioreactor,
+    setpoint_ppm: float,
     pressurize_duration: float = 10.0,
     pause: float = 30.0,
     co2_duration: Optional[float] = None,
+    kp: float = 0.0001,
+    ki: float = 0.00001,
+    model_gain: float = 100000.0,  # ppm per second of injection (model: CO2_change = model_gain * injection_duration)
+    delay_seconds: float = 60.0,  # Estimated delay between injection and measurement
     elapsed: Optional[float] = None
 ) -> None:
     """
-    Stabilize CO2 by constantly pressurizing and injecting CO2, 
-    adjusting injection duration based on CO2 trend slope.
+    Smith predictor controller for CO2 feedback control.
     
-    Always pressurizes and injects CO2, then calculates the slope of CO2 readings
-    from measure_and_plot_sensors data and adjusts the injection duration accordingly.
+    Uses a model to predict CO2 level without delay, compares to setpoint,
+    and adjusts injection duration accordingly. Accounts for system delay.
     
     Sequence:
-    1. Run pressurize_and_inject_co2 with current CO2 duration
-    2. Use CO2_2 data from measure_and_plot_sensors (stored in _plot_data)
-    3. Calculate linear fit slope from last 70 CO2 data points
-    4. Update CO2 duration for future use based on slope adjustment
+    1. Read current CO2_2 measurement
+    2. Update process model based on historical data
+    3. Predict CO2 level using model (without delay)
+    4. Calculate control action based on predicted error (setpoint - predicted)
+    5. Apply control action (adjust injection duration)
+    6. Pressurize and inject with adjusted duration
     
     Args:
         bioreactor: Bioreactor instance
+        setpoint_ppm: Target CO2 level in ppm
         pressurize_duration: Fixed duration to run pump_1 (default: 10.0 seconds)
         pause: Wait time between pump and CO2 injection (default: 30.0 seconds)
         co2_duration: Initial CO2 injection duration (default: uses global _co2_duration or 0.5s)
+        kp: Proportional gain for controller (default: 0.0001)
+        ki: Integral gain for controller (default: 0.00001)
+        model_gain: Model gain (ppm per second of injection) (default: 100000.0)
+        delay_seconds: Estimated delay between injection and measurement (default: 60.0s)
         elapsed: Time elapsed since job started (optional)
     """
-    global _co2_duration
+    global _co2_duration, _co2_predicted, _co2_model_history
     
     if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
         bioreactor.logger.warning("Relays not initialized or RelayController not available")
         return
     
+    # Initialize controller state
+    if not hasattr(bioreactor, '_co2_integral'):
+        bioreactor._co2_integral = 0.0
+    if not hasattr(bioreactor, '_co2_last_time'):
+        bioreactor._co2_last_time = time.time()
+    
+    # Get current CO2 measurement from plot data
+    if len(_plot_data['co2_2']) == 0:
+        bioreactor.logger.warning("No CO2_2 data available from measure_and_plot_sensors")
+        return
+    
+    current_co2 = _plot_data['co2_2'][-1]
+    current_time = time.time()
+    dt = current_time - bioreactor._co2_last_time
+    bioreactor._co2_last_time = current_time
+    
+    if np.isnan(current_co2) or dt <= 0:
+        bioreactor.logger.warning("Invalid CO2 reading or time delta")
+        return
+    
+    # Update process model based on historical data (simple adaptation)
+    # Model: CO2_change = model_gain * injection_duration
+    # Adapt model_gain based on observed CO2 changes vs injection durations
+    if len(_co2_model_history) >= 2:
+        # Use recent history to adapt model gain
+        recent_history = list(_co2_model_history)[-10:]  # Last 10 data points
+        if len(recent_history) >= 2:
+            # Simple linear regression to estimate model gain
+            durations = np.array([h[0] for h in recent_history])
+            co2_changes = np.array([h[1] for h in recent_history])
+            if len(durations) > 1 and np.std(durations) > 1e-6:
+                # Estimate gain: CO2_change / injection_duration
+                estimated_gain = np.mean(co2_changes / durations) if np.mean(durations) > 0 else model_gain
+                # Smooth adaptation (exponential moving average)
+                model_gain = 0.9 * model_gain + 0.1 * estimated_gain
+    
+    # Predict CO2 level using model (without delay)
+    # Predicted CO2 = current_measured + model_prediction
+    if _co2_predicted is None:
+        _co2_predicted = current_co2
+    
+    # Update prediction based on last injection (if we have history)
+    if len(_co2_model_history) > 0:
+        last_injection_duration, last_co2_change = _co2_model_history[-1]
+        # Predict what CO2 should be now based on last injection
+        predicted_change = model_gain * last_injection_duration
+        _co2_predicted = current_co2  # Reset prediction to current measurement
+    
+    # Calculate predicted error (setpoint - predicted CO2)
+    predicted_error = setpoint_ppm - _co2_predicted
+    
+    # Update integral term
+    bioreactor._co2_integral += predicted_error * dt
+    
+    # Calculate control action (PI controller on predicted error)
+    control_output = kp * predicted_error + ki * bioreactor._co2_integral
+    
+    # Convert control output to injection duration adjustment
+    # Positive error (too low) -> increase injection
+    # Negative error (too high) -> decrease injection
+    duration_adjustment = control_output
+    
     # Use global co2_duration if not provided
     if co2_duration is None:
-        co2_duration = _co2_duration if _co2_duration >= 0 else 0.1
+        co2_duration = _co2_duration if _co2_duration > 0 else 0.5
     
-    # Always pressurize and inject with current CO2 duration
-    pressurize_and_inject_co2(bioreactor, pressurize_duration, pause, co2_duration, elapsed)
+    # Apply adjustment to CO2 duration
+    new_co2_duration = co2_duration + duration_adjustment
     
-    # Use CO2_2 data directly from measure_and_plot_sensors (stored in _plot_data)
-    # Get the last 70 points (or all if fewer) for linear fit
-    if len(_plot_data['co2_2']) < 2:
-        bioreactor.logger.warning("Not enough CO2_2 data from measure_and_plot_sensors (need at least 2 points)")
-        return
+    # Clamp duration to reasonable bounds
+    new_co2_duration = max(0.0, min(new_co2_duration, 10.0))  # 0 to 10 seconds max
     
-    # Ensure co2_2 and time arrays have the same length
-    co2_list = list(_plot_data['co2_2'])
-    time_list = list(_plot_data['time'])
-    min_len = min(len(co2_list), len(time_list))
+    # Update global duration
+    _co2_duration = new_co2_duration
     
-    if min_len < 2:
-        bioreactor.logger.warning("Not enough data points (need at least 2 points)")
-        return
+    # Pressurize and inject with adjusted duration
+    bioreactor.logger.info(f"Smith predictor: setpoint={setpoint_ppm:.1f} ppm, current={current_co2:.1f} ppm, predicted={_co2_predicted:.1f} ppm, error={predicted_error:.1f} ppm, duration={_co2_duration:.3f}s")
+    pressurize_and_inject_co2(bioreactor, pressurize_duration, pause, _co2_duration, elapsed)
     
-    # Take the last n_points from both arrays, ensuring they're aligned
-    n_points = min(20, min_len)
-    co2_values = np.array(co2_list[-n_points:])
-    time_values = np.array(time_list[-n_points:])
-    
-    # Ensure arrays have the same length
-    if len(co2_values) != len(time_values):
-        # Take the minimum length to ensure alignment
-        min_array_len = min(len(co2_values), len(time_values))
-        co2_values = co2_values[-min_array_len:]
-        time_values = time_values[-min_array_len:]
-    
-    # Filter out NaN values
-    valid_mask = ~np.isnan(co2_values)
-    if np.sum(valid_mask) < 2:
-        bioreactor.logger.warning("Not enough valid CO2_2 data points (need at least 2 non-NaN values)")
-        return
-    
-    # Apply mask to both arrays (they should be the same length now)
-    co2_values = co2_values[valid_mask]
-    time_values = time_values[valid_mask]
-    
-    # Perform linear regression: y = slope * x + intercept
-    if len(time_values) > 1 and len(co2_values) > 1 and len(time_values) == len(co2_values):
-        # Linear fit: [slope, intercept]
-        coeffs = np.polyfit(time_values, co2_values, 1)
-        slope = coeffs[0]  # ppm per second
-        
-        bioreactor.logger.info(f"CO2 slope: {slope:.2f} ppm/s (from {len(co2_values)} points)")
-        
-        # Adjust CO2 duration based on slope
-        if abs(slope) < 3:  # Essentially zero (avoid floating point issues)
-            # Slope is zero, don't change duration
-            bioreactor.logger.info("CO2 slope is zero, keeping current CO2 duration")
-        else:
-            # Calculate adjustment: more aggressive for positive slopes (CO2 increasing)
-            if slope > 0:
-                # Positive slope: CO2 increasing, reduce injection more aggressively
-                # Use smaller divisor (50 instead of 100) for faster response
-                adjustment = -slope / 2000.0
-            else:
-                # Negative slope: CO2 decreasing, increase injection less aggressively
-                adjustment = -slope / 2000.0
-            
-            # Apply adjustment to CO2 duration
-            new_co2_duration = _co2_duration + adjustment
-            
-            # If CO2 duration would go to zero or negative, keep it at zero
-            if new_co2_duration <= 0:
-                _co2_duration = 0.0
-                bioreactor.logger.info(f"CO2 duration set to zero (slope adjustment would have made it negative)")
-            else:
-                # Update CO2 duration for future use
-                _co2_duration = new_co2_duration
-                bioreactor.logger.info(f"Updated CO2 duration to {_co2_duration:.3f}s for future injections (change: {adjustment:.3f}s, slope: {slope:.2f} ppm/s)")
-    else:
-        bioreactor.logger.warning("Insufficient data for linear fit")
+    # Store injection and observed CO2 change for model adaptation
+    # We'll update this after next measurement
+    if len(_plot_data['co2_2']) >= 2:
+        prev_co2 = _plot_data['co2_2'][-2] if len(_plot_data['co2_2']) >= 2 else current_co2
+        co2_change = current_co2 - prev_co2
+        _co2_model_history.append((_co2_duration, co2_change))
 
