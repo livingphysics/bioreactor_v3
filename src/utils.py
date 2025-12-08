@@ -647,8 +647,14 @@ def stabilize_co2(
                 # Slope is zero, don't change duration
                 bioreactor.logger.info("CO2 slope is zero, keeping current CO2 duration")
             else:
-                # Calculate adjustment: -slope/100 seconds
-                adjustment = -slope / 100.0
+                # Calculate adjustment: more aggressive for positive slopes (CO2 increasing)
+                if slope > 0:
+                    # Positive slope: CO2 increasing, reduce injection more aggressively
+                    # Use smaller divisor (50 instead of 100) for faster response
+                    adjustment = -slope / 50.0
+                else:
+                    # Negative slope: CO2 decreasing, increase injection less aggressively
+                    adjustment = -slope / 100.0
                 
                 # Apply adjustment to CO2 duration
                 new_co2_duration = _co2_duration + adjustment
@@ -660,7 +666,7 @@ def stabilize_co2(
                 else:
                     # Update CO2 duration for future use
                     _co2_duration = new_co2_duration
-                    bioreactor.logger.info(f"Updated CO2 duration to {_co2_duration:.3f}s for future injections (change: {adjustment:.3f}s)")
+                    bioreactor.logger.info(f"Updated CO2 duration to {_co2_duration:.3f}s for future injections (change: {adjustment:.3f}s, slope: {slope:.2f} ppm/s)")
         else:
             bioreactor.logger.warning("Insufficient data for linear fit")
     else:
