@@ -84,7 +84,7 @@ class Config:
     
     # Auto-flush on initialization
     AUTO_FLUSH_ON_INIT: bool = True  # Automatically flush tank on startup
-    AUTO_FLUSH_DURATION: float = 20.0  # Duration in seconds for tank flush
+    AUTO_FLUSH_DURATION: float = 10.0  # Duration in seconds for tank flush
     
     # Auto-pressurize on initialization
     AUTO_PRESSURIZE_ON_INIT: bool = True  # Automatically pressurize chamber on startup
