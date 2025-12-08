@@ -675,16 +675,27 @@ def smith_predictor_co2(
                 model_gain = 0.9 * model_gain + 0.1 * estimated_gain
     
     # Predict CO2 level using model (without delay)
-    # Predicted CO2 = current_measured + model_prediction
+    # Smith predictor: predict what CO2 will be after accounting for system delay
     if _co2_predicted is None:
         _co2_predicted = current_co2
     
-    # Update prediction based on last injection (if we have history)
+    # Update prediction based on past injections (accounting for delay)
+    # The model predicts CO2 change from injections that occurred 'delay_seconds' ago
     if len(_co2_model_history) > 0:
-        last_injection_duration, last_co2_change = _co2_model_history[-1]
-        # Predict what CO2 should be now based on last injection
-        predicted_change = model_gain * last_injection_duration
-        _co2_predicted = current_co2  # Reset prediction to current measurement
+        # Sum up predicted changes from recent injections (within delay window)
+        # This gives us the predicted CO2 level without delay
+        predicted_change = 0.0
+        for injection_duration, observed_change in _co2_model_history[-5:]:  # Last 5 injections
+            # Use model to predict change from this injection
+            predicted_change += model_gain * injection_duration
+        
+        # Predicted CO2 = current measured + predicted changes from past injections
+        # This accounts for the delay - we're predicting what CO2 should be now
+        # based on injections that happened in the past
+        _co2_predicted = current_co2 + predicted_change
+    else:
+        # No history yet, use current measurement as prediction
+        _co2_predicted = current_co2
     
     # Calculate predicted error (setpoint - predicted CO2)
     predicted_error = setpoint_ppm - _co2_predicted
@@ -712,6 +723,10 @@ def smith_predictor_co2(
     
     # Update global duration
     _co2_duration = new_co2_duration
+    
+    # Log control output and duration adjustment separately
+    bioreactor.logger.info(f"Smith predictor control output: {control_output:.6f}")
+    bioreactor.logger.info(f"Smith predictor duration adjustment: {duration_adjustment:.6f}")
     
     # Pressurize and inject with adjusted duration
     bioreactor.logger.info(f"Smith predictor: setpoint={setpoint_ppm:.1f} ppm, current={current_co2:.1f} ppm, predicted={_co2_predicted:.1f} ppm, error={predicted_error:.1f} ppm, duration={_co2_duration:.3f}s")
