@@ -402,7 +402,7 @@ def pressurize_and_inject_co2(
     bioreactor,
     pressurize_duration: float = 10.0,
     pause: float = 30.0,
-    co2_duration: float = 1.0,
+    co2_duration: Union[float, str] = 1.0,
     elapsed: Optional[float] = None
 ) -> None:
     """
@@ -419,12 +419,25 @@ def pressurize_and_inject_co2(
         bioreactor: Bioreactor instance
         pressurize_duration: Duration to run pump_1 (default: 10.0 seconds)
         pause: Wait time between pump and CO2 injection (default: 30.0 seconds)
-        co2_duration: Duration for CO2 injection (default: 1.0 seconds)
+        co2_duration: Duration for CO2 injection in seconds, or "auto" to calculate based on CO2_2 reading (default: 1.0 seconds)
+                      When "auto", calculates duration as CO2_2_value / 100000.0
         elapsed: Time elapsed since job started (optional)
     """
     if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
         bioreactor.logger.warning("Relays not initialized or RelayController not available")
         return
+    
+    # Calculate CO2 duration if "auto"
+    actual_co2_duration = co2_duration
+    if co2_duration == "auto":
+        from .io import read_co2_2
+        co2_2_value = read_co2_2(bioreactor)
+        if co2_2_value is not None and not np.isnan(co2_2_value):
+            actual_co2_duration = co2_2_value / 100000.0
+            bioreactor.logger.info(f"Auto CO2 duration: CO2_2={co2_2_value:.1f} ppm, calculated duration={actual_co2_duration:.3f}s")
+        else:
+            bioreactor.logger.warning("CO2_2 reading unavailable for auto calculation, using default 1.0s")
+            actual_co2_duration = 1.0
     
     try:
         # Pressurize
@@ -438,9 +451,9 @@ def pressurize_and_inject_co2(
         time.sleep(pause)
         
         # Inject CO2
-        bioreactor.logger.info(f"Injecting CO2: co2_solenoid ON for {co2_duration}s")
+        bioreactor.logger.info(f"Injecting CO2: co2_solenoid ON for {actual_co2_duration:.3f}s")
         bioreactor.relay_controller.on('co2_solenoid')
-        time.sleep(co2_duration)
+        time.sleep(actual_co2_duration)
         bioreactor.relay_controller.off('co2_solenoid')
         bioreactor.logger.info("Pressurize and inject complete")
         
