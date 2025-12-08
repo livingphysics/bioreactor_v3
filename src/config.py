@@ -84,5 +84,5 @@ class Config:
     # Auto-pressurize on initialization
     AUTO_PRESSURIZE_ON_INIT: bool = False  # Automatically pressurize chamber on startup
     AUTO_PRESSURIZE_DURATION: float = 10.0  # Duration in seconds for pressurization
-    AUTO_PRESSURIZE_PAUSE: float = 30.0  # Wait time between pressurization and CO2 injection (if CO2 duration > 0)
+    AUTO_PRESSURIZE_PAUSE: float = 0.0  # Wait time between pressurization and CO2 injection (if CO2 duration > 0)
     AUTO_PRESSURIZE_CO2_DURATION: float = 0.0  # Duration in seconds for CO2 injection (0 = no CO2 injection)
