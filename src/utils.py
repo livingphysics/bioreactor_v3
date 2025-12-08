@@ -649,12 +649,18 @@ def smith_predictor_co2(
         bioreactor.logger.warning("No CO2_2 data available from measure_and_plot_sensors")
         return
     
-    current_co2 = _plot_data['co2_2'][-1]
+    # Convert to list to ensure proper indexing
+    co2_2_list = list(_plot_data['co2_2'])
+    if len(co2_2_list) == 0:
+        bioreactor.logger.warning("No CO2_2 data available from measure_and_plot_sensors")
+        return
+    
+    current_co2 = co2_2_list[-1]
     current_time = time.time()
     dt = current_time - bioreactor._co2_last_time
     bioreactor._co2_last_time = current_time
     
-    if np.isnan(current_co2) or dt <= 0:
+    if current_co2 is None or np.isnan(current_co2) or dt <= 0:
         bioreactor.logger.warning("Invalid CO2 reading or time delta")
         return
     
@@ -734,8 +740,9 @@ def smith_predictor_co2(
     
     # Store injection and observed CO2 change for model adaptation
     # We'll update this after next measurement
-    if len(_plot_data['co2_2']) >= 2:
-        prev_co2 = _plot_data['co2_2'][-2] if len(_plot_data['co2_2']) >= 2 else current_co2
+    co2_2_list = list(_plot_data['co2_2'])
+    if len(co2_2_list) >= 2:
+        prev_co2 = co2_2_list[-2]
         co2_change = current_co2 - prev_co2
         _co2_model_history.append((_co2_duration, co2_change))
 
