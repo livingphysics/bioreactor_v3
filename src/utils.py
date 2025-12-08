@@ -463,11 +463,21 @@ def inject_co2_delayed(
         injection_duration_seconds: Duration to keep CO2 solenoid ON (default: 1.0 seconds)
         elapsed: Time elapsed since job started (optional)
     """
+    # Track if injection has already been executed (one-time job)
+    if not hasattr(bioreactor, '_co2_injection_executed'):
+        bioreactor._co2_injection_executed = False
+    
+    if bioreactor._co2_injection_executed:
+        return  # Already executed, skip
+    
     if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
         bioreactor.logger.warning("Relays not initialized or RelayController not available")
         return
     
     try:
+        # Mark as executed before starting to prevent duplicate runs
+        bioreactor._co2_injection_executed = True
+        
         # Wait for specified delay
         if delay_seconds > 0:
             bioreactor.logger.info(f"Waiting {delay_seconds}s before CO2 injection...")
