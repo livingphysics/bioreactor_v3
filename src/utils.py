@@ -29,7 +29,7 @@ _plot_fig = None
 _plot_axes = None
 
 
-def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None):
+def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
     """
     Measure, record, and plot sensor data from OD (Trx, Sct), Temperature, CO2, and O2.
     
@@ -44,6 +44,8 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None):
     Args:
         bioreactor: Bioreactor instance
         elapsed: Elapsed time in seconds (if None, uses time since start)
+        led_power: LED power percentage for OD measurements (default: 30.0)
+        averaging_duration: Duration in seconds for averaging OD measurements (default: 0.5)
         
     Returns:
         dict: Dictionary with all sensor readings
@@ -101,7 +103,7 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None):
     # Read OD channels (Trx and Sct)
     if bioreactor.is_component_initialized('led') and bioreactor.is_component_initialized('optical_density'):
         # Measure OD with LED on
-        od_results = measure_od(bioreactor, led_power=30.0, averaging_duration=0.5, channel_name='all')
+        od_results = measure_od(bioreactor, led_power=led_power, averaging_duration=averaging_duration, channel_name='all')
         if od_results:
             trx_voltage = od_results.get('Trx', None)
             sct_voltage = od_results.get('Sct', None)
@@ -250,9 +252,9 @@ def temperature_pid_controller(
     bioreactor,
     setpoint: float,
     current_temp: Optional[float] = None,
-    kp: float = 5.0,
-    ki: float = 0.3,
-    kd: float = 2.0,
+    kp: float = 12.0,
+    ki: float = 0.015,
+    kd: float = 0.0,
     dt: Optional[float] = None,
     elapsed: Optional[float] = None,
     sensor_index: int = 0,

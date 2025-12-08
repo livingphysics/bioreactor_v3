@@ -71,7 +71,7 @@ with Bioreactor(config) as reactor:
     # duration: how long to run in seconds, or True for indefinite
     jobs = [
         # Measure, record, and plot sensors every 5 seconds
-        (measure_and_plot_sensors, 5, True),  # Read sensors and update plot every 5 seconds
+        (partial(measure_and_plot_sensors, led_power=80.0), 5, True),  # Read sensors and update plot every 5 seconds
         
         # Temperature PID controller - maintains temperature at 37.0°C
         # Run PID controller every 1 second
