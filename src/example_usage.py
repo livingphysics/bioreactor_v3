@@ -79,13 +79,11 @@ with Bioreactor(config) as reactor:
         
         # Stabilize CO2 - pressurizes and injects CO2, adjusting duration based on slope
         (partial(stabilize_co2, pressurize_duration=10.0, pause=30.0), 60, True),  # Stabilize CO2 every 60 seconds
-        
-        # Delayed CO2 injection - wait 100s, then inject for 10s (one-time job)
-        # Frequency should be small (1-5s) so function can check elapsed time frequently
-        # Duration should be at least delay_seconds + injection_duration_seconds (110s)
-        (partial(inject_co2_delayed, delay_seconds=100.0, injection_duration_seconds=10.0), 2, 120),  # Check every 2s, run for 120s total
-
     ]
+    
+    # Run immediate CO2 injection before starting scheduled jobs
+    print("Running immediate CO2 injection...")
+    inject_co2_delayed(reactor, delay_seconds=0.0, injection_duration_seconds=10.0)
     
     reactor.run(jobs)
     print("Started scheduled jobs. Press Ctrl+C to stop.")
