@@ -672,30 +672,24 @@ def pid_co2_controller(
     
     # Calculate PID control output
     control_output = kp * error + ki * bioreactor._co2_integral + kd * derivative
+    bioreactor.logger.info(f"error: {error:.1f} ppm, integral: {bioreactor._co2_integral:.6f}")
+    # Set injection duration directly as a function of the error (PID output)
+    # Duration is directly calculated from PID output: duration = f(error)
+    # Positive error (too low) -> longer injection duration
+    # Negative error (too high) -> shorter injection duration (clamped to 0)
+    # Duration is purely a function of error, no base offset
+    new_co2_duration = control_output
     
-    # Convert control output to injection duration adjustment
-    # Positive error (too low) -> increase injection
-    # Negative error (too high) -> decrease injection
-    duration_adjustment = control_output
-    
-    # Use global co2_duration if not provided
-    if co2_duration is None:
-        co2_duration = _co2_duration if _co2_duration > 0 else 0.5
-    
-    # Apply adjustment to CO2 duration
-    new_co2_duration = co2_duration + duration_adjustment
-    
-    # Clamp duration to reasonable bounds
-    new_co2_duration = max(0.0, min(new_co2_duration, 10.0))  # 0 to 10 seconds max
+    # Clamp duration to reasonable bounds (0 to 5 seconds)
+    new_co2_duration = max(0.0, min(new_co2_duration, 5.0))
     
     # Update global duration
     _co2_duration = new_co2_duration
     
-    # Log control output and duration adjustment separately
+    # Log control output
     bioreactor.logger.info(f"CO2 PID control output: {control_output:.6f}")
-    bioreactor.logger.info(f"CO2 PID duration adjustment: {duration_adjustment:.6f}")
     
-    # Pressurize and inject with adjusted duration
+    # Pressurize and inject with duration set directly from error
     bioreactor.logger.info(f"CO2 PID: setpoint={setpoint_ppm:.1f} ppm, current={current_co2:.1f} ppm, error={error:.1f} ppm, duration={_co2_duration:.3f}s")
     pressurize_and_inject_co2(bioreactor, pressurize_duration, pause, _co2_duration, elapsed)
 
