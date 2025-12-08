@@ -77,8 +77,8 @@ with Bioreactor(config) as reactor:
         # # Run PID controller every 1 second
         (partial(temperature_pid_controller, setpoint=37.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
         
-        # Stabilize CO2 - pressurizes and injects CO2, adjusting duration based on slope
-        (partial(stabilize_co2, pressurize_duration=5.0, pause=5.0), 30, True),  # Stabilize CO2 every 30 seconds
+        # Smith predictor CO2 controller - maintains CO2 at setpoint using predictive control
+        (partial(smith_predictor_co2, setpoint_ppm=50000.0, pressurize_duration=5.0, pause=5.0, kp=0.0001, ki=0.00001), 30, True),  # Control CO2 every 30 seconds
     ]
     
     # Run immediate CO2 injection before starting scheduled jobs
