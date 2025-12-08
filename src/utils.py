@@ -483,44 +483,75 @@ def inject_co2_delayed(
     Wait for specified delay, then inject CO2 for specified duration.
     This is a one-time job that completes after the injection.
     
+    Uses elapsed time from the scheduler to determine when to inject,
+    avoiding blocking sleeps that conflict with the scheduler.
+    
     Sequence:
-    1. Wait for delay_seconds
-    2. Turn ON co2_solenoid relay for injection_duration_seconds
-    3. Turn OFF co2_solenoid relay
+    1. Check if enough time has elapsed (delay_seconds)
+    2. If yes and not already started, inject CO2 for injection_duration_seconds
+    3. Turn OFF co2_solenoid relay when injection window ends
     4. Job completes
     
     Args:
         bioreactor: Bioreactor instance
         delay_seconds: Time to wait before starting CO2 injection (default: 0.0 seconds)
         injection_duration_seconds: Duration to keep CO2 solenoid ON (default: 1.0 seconds)
-        elapsed: Time elapsed since job started (optional)
+        elapsed: Time elapsed since job started (required for proper timing)
     """
-    # Track if injection has already been executed (one-time job)
-    if not hasattr(bioreactor, '_co2_injection_executed'):
-        bioreactor._co2_injection_executed = False
+    # Track injection state
+    if not hasattr(bioreactor, '_co2_injection_started'):
+        bioreactor._co2_injection_started = False
+    if not hasattr(bioreactor, '_co2_injection_completed'):
+        bioreactor._co2_injection_completed = False
     
-    if bioreactor._co2_injection_executed:
-        return  # Already executed, skip
+    # If already completed, skip
+    if bioreactor._co2_injection_completed:
+        return
     
     if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
         bioreactor.logger.warning("Relays not initialized or RelayController not available")
+        bioreactor._co2_injection_completed = True
         return
     
+    # Initialize start time if not set
+    if not hasattr(bioreactor, '_co2_injection_start_time'):
+        bioreactor._co2_injection_start_time = time.time()
+        bioreactor.logger.info(f"Scheduled CO2 injection: will inject after {delay_seconds}s delay")
+        return  # First call, just initialize and return
+    
+    # Calculate elapsed time since job started
+    if elapsed is None:
+        elapsed = time.time() - bioreactor._co2_injection_start_time
+    
+    # Calculate injection window times
+    injection_start_time = delay_seconds
+    injection_end_time = delay_seconds + injection_duration_seconds
+    
+    # Check if we're before the delay period
+    if elapsed < injection_start_time:
+        return  # Not time yet, return and let scheduler call again
+    
+    # Check if injection window has passed
+    if elapsed >= injection_end_time:
+        # Injection window has passed, turn off relay and mark as complete
+        if bioreactor._co2_injection_started:
+            try:
+                bioreactor.relay_controller.off('co2_solenoid')
+                bioreactor.logger.info("CO2 injection completed")
+            except Exception as e:
+                bioreactor.logger.error(f"Error turning off CO2 solenoid: {e}")
+        bioreactor._co2_injection_completed = True
+        return
+    
+    # We're in the injection window - inject CO2
     try:
-        # Mark as executed before starting to prevent duplicate runs
-        bioreactor._co2_injection_executed = True
+        if not bioreactor._co2_injection_started:
+            bioreactor.logger.info(f"Starting CO2 injection ({injection_duration_seconds}s)...")
+            bioreactor.relay_controller.on('co2_solenoid')
+            bioreactor._co2_injection_started = True
         
-        # Wait for specified delay
-        if delay_seconds > 0:
-            bioreactor.logger.info(f"Waiting {delay_seconds}s before CO2 injection...")
-            time.sleep(delay_seconds)
-        
-        # Inject CO2
-        bioreactor.logger.info(f"Starting CO2 injection ({injection_duration_seconds}s)...")
-        bioreactor.relay_controller.on('co2_solenoid')
-        time.sleep(injection_duration_seconds)
-        bioreactor.relay_controller.off('co2_solenoid')
-        bioreactor.logger.info("CO2 injection complete")
+        # Keep relay on during injection window
+        # The scheduler will call this function repeatedly, and we'll turn it off when elapsed >= injection_end_time
         
     except Exception as e:
         bioreactor.logger.error(f"Error during CO2 injection: {e}")
@@ -529,6 +560,7 @@ def inject_co2_delayed(
             bioreactor.relay_controller.off('co2_solenoid')
         except:
             pass
+        bioreactor._co2_injection_completed = True
 
 
 def stabilize_co2(
