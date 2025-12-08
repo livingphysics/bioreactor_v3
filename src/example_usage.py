@@ -70,21 +70,18 @@ with Bioreactor(config) as reactor:
     # frequency: time between calls in seconds, or True for continuous
     # duration: how long to run in seconds, or True for indefinite
     jobs = [
-        # Measure, record, and plot sensors every 5 seconds
+        # # Measure, record, and plot sensors every 5 seconds
         (partial(measure_and_plot_sensors, led_power=15.0), 5, True),  # Read sensors and update plot every 5 seconds
         
-        # Temperature PID controller - maintains temperature at 37.0°C
-        # Run PID controller every 1 second
+        # # Temperature PID controller - maintains temperature at 37.0°C
+        # # Run PID controller every 1 second
         (partial(temperature_pid_controller, setpoint=37.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
         
         # Stabilize CO2 - pressurizes and injects CO2, adjusting duration based on slope
-        (partial(stabilize_co2, pressurize_duration=10.0, pause=30.0), 60, True),  # Stabilize CO2 every 60 seconds
+        (partial(stabilize_co2, pressurize_duration=5.0, pause=5.0), 30, True),  # Stabilize CO2 every 30 seconds
     ]
     
     # Run immediate CO2 injection before starting scheduled jobs
-    print("Running immediate CO2 injection...")
-    inject_co2_delayed(reactor, delay_seconds=0.0, injection_duration_seconds=5.0)
-    
     reactor.run(jobs)
     print("Started scheduled jobs. Press Ctrl+C to stop.")
     

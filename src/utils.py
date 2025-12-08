@@ -627,7 +627,7 @@ def stabilize_co2(
     
     # Use global co2_duration if not provided
     if co2_duration is None:
-        co2_duration = _co2_duration if _co2_duration > 0 else 0.5
+        co2_duration = _co2_duration if _co2_duration >= 0 else 0.1
     
     # Always pressurize and inject with current CO2 duration
     pressurize_and_inject_co2(bioreactor, pressurize_duration, pause, co2_duration, elapsed)
@@ -648,7 +648,7 @@ def stabilize_co2(
         return
     
     # Take the last n_points from both arrays, ensuring they're aligned
-    n_points = min(70, min_len)
+    n_points = min(20, min_len)
     co2_values = np.array(co2_list[-n_points:])
     time_values = np.array(time_list[-n_points:])
     
@@ -678,7 +678,7 @@ def stabilize_co2(
         bioreactor.logger.info(f"CO2 slope: {slope:.2f} ppm/s (from {len(co2_values)} points)")
         
         # Adjust CO2 duration based on slope
-        if abs(slope) < 1e-6:  # Essentially zero (avoid floating point issues)
+        if abs(slope) < 3:  # Essentially zero (avoid floating point issues)
             # Slope is zero, don't change duration
             bioreactor.logger.info("CO2 slope is zero, keeping current CO2 duration")
         else:
@@ -686,10 +686,10 @@ def stabilize_co2(
             if slope > 0:
                 # Positive slope: CO2 increasing, reduce injection more aggressively
                 # Use smaller divisor (50 instead of 100) for faster response
-                adjustment = -slope / 50.0
+                adjustment = -slope / 2000.0
             else:
                 # Negative slope: CO2 decreasing, increase injection less aggressively
-                adjustment = -slope / 100.0
+                adjustment = -slope / 2000.0
             
             # Apply adjustment to CO2 duration
             new_co2_duration = _co2_duration + adjustment
