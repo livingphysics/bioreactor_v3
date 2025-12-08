@@ -15,13 +15,13 @@ logger = logging.getLogger("Bioreactor.Utils")
 
 # Global storage for plotting data
 _plot_data = {
-    'time': deque(maxlen=1000),
-    'co2': deque(maxlen=1000),
-    'co2_2': deque(maxlen=1000),
-    'o2': deque(maxlen=1000),
-    'temperature': deque(maxlen=1000),
-    'od_trx': deque(maxlen=1000),
-    'od_sct': deque(maxlen=1000),
+    'time': deque(maxlen=20000),
+    'co2': deque(maxlen=20000),
+    'co2_2': deque(maxlen=20000),
+    'o2': deque(maxlen=20000),
+    'temperature': deque(maxlen=20000),
+    'od_trx': deque(maxlen=20000),
+    'od_sct': deque(maxlen=20000),
 }
 
 # Global figure and axes for plotting
@@ -656,8 +656,12 @@ def pid_co2_controller(
     dt = current_time - bioreactor._co2_last_time
     bioreactor._co2_last_time = current_time
     
+    # Handle NaN or invalid CO2 readings - continue with duration 0
     if current_co2 is None or np.isnan(current_co2) or dt <= 0:
-        bioreactor.logger.warning("Invalid CO2 reading or time delta")
+        bioreactor.logger.warning("Invalid CO2 reading or time delta - using duration 0")
+        _co2_duration = 0.0
+        # Still run pump/injection with duration 0
+        pressurize_and_inject_co2(bioreactor, pressurize_duration, pause, 0.0, elapsed)
         return
     
     # Calculate error (setpoint - current)
