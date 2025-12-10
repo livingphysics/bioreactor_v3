@@ -23,8 +23,6 @@ _plot_data = {
     'co2_2': deque(maxlen=PLOT_DATA_MAXLEN),
     'o2': deque(maxlen=PLOT_DATA_MAXLEN),
     'temperature': deque(maxlen=PLOT_DATA_MAXLEN),
-    'od_trx': deque(maxlen=PLOT_DATA_MAXLEN),
-    'od_sct': deque(maxlen=PLOT_DATA_MAXLEN),
 }
 
 # Global figure and axes for plotting
@@ -106,58 +104,44 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
         sensor_data['temperature'] = float('nan')
         _plot_data['temperature'].append(float('nan'))
     
-    # Read OD channels (Trx, Sct, and Ref)
+    # Helper to ensure OD channels are tracked dynamically
+    def _ensure_od_channels(channel_names):
+        for ch in channel_names:
+            key = f"od_{ch.lower()}"
+            if key not in _plot_data:
+                _plot_data[key] = deque(maxlen=PLOT_DATA_MAXLEN)
+
+    # Read OD channels (dynamic based on config)
     if bioreactor.is_component_initialized('led') and bioreactor.is_component_initialized('optical_density'):
         # Measure OD with LED on
         od_results = measure_od(bioreactor, led_power=led_power, averaging_duration=averaging_duration, channel_name='all')
         if od_results:
-            trx_voltage = od_results.get('Trx', None)
-            sct_voltage = od_results.get('Sct', None)
-            ref_voltage = od_results.get('Ref', None)
-            
-            if trx_voltage is not None:
-                sensor_data['od_trx'] = trx_voltage
-                _plot_data['od_trx'].append(trx_voltage)
-            else:
-                sensor_data['od_trx'] = float('nan')
-                _plot_data['od_trx'].append(float('nan'))
-            
-            if sct_voltage is not None:
-                sensor_data['od_sct'] = sct_voltage
-                _plot_data['od_sct'].append(sct_voltage)
-            else:
-                sensor_data['od_sct'] = float('nan')
-                _plot_data['od_sct'].append(float('nan'))
-            
-            # Record Ref voltage in CSV but don't plot it
-            if ref_voltage is not None:
-                sensor_data['od_ref'] = ref_voltage
-            else:
-                sensor_data['od_ref'] = float('nan')
+            _ensure_od_channels(od_results.keys())
+            for ch, val in od_results.items():
+                key = f"od_{ch.lower()}"
+                if val is not None:
+                    sensor_data[key] = val
+                    _plot_data[key].append(val)
+                else:
+                    sensor_data[key] = float('nan')
+                    _plot_data[key].append(float('nan'))
         else:
-            sensor_data['od_trx'] = float('nan')
-            sensor_data['od_sct'] = float('nan')
-            sensor_data['od_ref'] = float('nan')
-            _plot_data['od_trx'].append(float('nan'))
-            _plot_data['od_sct'].append(float('nan'))
+            sensor_data['od'] = float('nan')  # placeholder; CSV mapping below is guarded
     else:
         # Try reading without LED if OD sensor is available but LED is not
         if bioreactor.is_component_initialized('optical_density'):
-            trx_voltage = read_voltage(bioreactor, 'Trx')
-            sct_voltage = read_voltage(bioreactor, 'Sct')
-            ref_voltage = read_voltage(bioreactor, 'Ref')
-            
-            sensor_data['od_trx'] = trx_voltage if trx_voltage is not None else float('nan')
-            sensor_data['od_sct'] = sct_voltage if sct_voltage is not None else float('nan')
-            sensor_data['od_ref'] = ref_voltage if ref_voltage is not None else float('nan')
-            _plot_data['od_trx'].append(sensor_data['od_trx'])
-            _plot_data['od_sct'].append(sensor_data['od_sct'])
+            # Use configured channel list if available
+            od_cfg = getattr(bioreactor.cfg, 'OD_ADC_CHANNELS', {})
+            channels = list(od_cfg.keys()) if od_cfg else ['Trx', 'Sct', 'Ref']
+            _ensure_od_channels(channels)
+            for ch in channels:
+                val = read_voltage(bioreactor, ch)
+                key = f"od_{ch.lower()}"
+                sensor_data[key] = val if val is not None else float('nan')
+                _plot_data[key].append(sensor_data[key])
         else:
-            sensor_data['od_trx'] = float('nan')
-            sensor_data['od_sct'] = float('nan')
-            sensor_data['od_ref'] = float('nan')
-            _plot_data['od_trx'].append(float('nan'))
-            _plot_data['od_sct'].append(float('nan'))
+            # No OD available; nothing to log/plot
+            pass
     
     # Add time to plot data
     _plot_data['time'].append(elapsed)
@@ -238,18 +222,26 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
             ax3.plot(list(_plot_data['time']), list(_plot_data['temperature']), 'g-', linewidth=2, label='Temperature')
         ax3.legend()
         
-        # Bottom right: OD voltages
+        # Bottom right: OD voltages (dynamic)
         ax4 = _plot_axes[1, 1]
         ax4.clear()
         ax4.set_title('Optical Density Voltages')
         ax4.set_xlabel('Time (seconds)')
         ax4.set_ylabel('Voltage (V)')
         ax4.grid(True, alpha=0.3)
-        if len(_plot_data['od_trx']) > 0:
-            ax4.plot(list(_plot_data['time']), list(_plot_data['od_trx']), 'm-', linewidth=2, label='Trx')
-        if len(_plot_data['od_sct']) > 0:
-            ax4.plot(list(_plot_data['time']), list(_plot_data['od_sct']), 'c-', linewidth=2, label='Sct')
-        ax4.legend()
+        # Plot any OD_* series we have tracked
+        colors = ['m-', 'c-', 'y-', 'k-', 'g-', 'b-']
+        idx = 0
+        for key in sorted(_plot_data.keys()):
+            if not key.startswith('od_'):
+                continue
+            if len(_plot_data[key]) == 0:
+                continue
+            color = colors[idx % len(colors)]
+            ax4.plot(list(_plot_data['time']), list(_plot_data[key]), color, linewidth=2, label=key[3:].upper())
+            idx += 1
+        if idx > 0:
+            ax4.legend()
         
         plt.tight_layout()
         plt.draw()
