@@ -275,7 +275,7 @@ _TEMP_BASE_RATE_LOOKUP = {
 
 # CO2 PID base rate lookup table: setpoint (ppm) -> base injection duration (seconds)
 _CO2_BASE_RATE_LOOKUP = {
-    50000.0: 0.017,  # Base rate for 50,000 ppm setpoint
+    50000.0: 0.17,  # Base rate for 50,000 ppm setpoint
     # Add more entries as needed: setpoint: base_duration
 }
 
