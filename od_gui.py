@@ -334,9 +334,7 @@ class ODManualReadingGUI:
                 
                 # Storage for results
                 led_powers = []
-                trx_values = []
-                sct_values = []
-                ref_values = []
+                channel_values = {ch: [] for ch in self.channels}
                 
                 # Sweep from 0% to 20% in 1% increments
                 for led_power in range(0, 21):
@@ -351,9 +349,8 @@ class ODManualReadingGUI:
                     
                     if od_results:
                         led_powers.append(led_power)
-                        trx_values.append(od_results.get('Trx', None))
-                        sct_values.append(od_results.get('Sct', None))
-                        ref_values.append(od_results.get('Ref', None))
+                        for ch in self.channels:
+                            channel_values[ch].append(od_results.get(ch, None))
                     
                     # Small delay between measurements
                     time.sleep(0.2)
@@ -361,9 +358,9 @@ class ODManualReadingGUI:
                 # Update UI with final results
                 if led_powers:
                     self.root.after(0, lambda: self.update_results_from_sweep(
-                        led_powers, trx_values, sct_values, ref_values))
+                        led_powers, channel_values))
                     self.root.after(0, lambda: self.plot_sweep_results(
-                        led_powers, trx_values, sct_values, ref_values))
+                        led_powers, channel_values))
                 else:
                     self.root.after(0, lambda: self.update_status_error("No valid readings collected"))
                     
@@ -377,7 +374,7 @@ class ODManualReadingGUI:
         
         threading.Thread(target=sweep_thread, daemon=True).start()
     
-    def update_results_from_sweep(self, led_powers, trx_values, sct_values, ref_values):
+    def update_results_from_sweep(self, led_powers, channel_values):
         """Update GUI with results from the last sweep measurement"""
         if led_powers:
             last_idx = len(led_powers) - 1
@@ -389,66 +386,46 @@ class ODManualReadingGUI:
                 fg="blue"
             )
             
-            # Update current readings and move previous to last
-            if trx_values[last_idx] is not None:
-                # Move current to last
-                if self.last_readings['Trx'] is not None:
-                    self.last_result_labels['Trx'].config(
-                        text=f"{self.last_readings['Trx']:.4f} V",
-                        fg="gray"
-                    )
-                # Update current
-                self.result_labels['Trx'].config(text=f"{trx_values[last_idx]:.4f} V", fg="green")
-                self.last_readings['Trx'] = trx_values[last_idx]
-            
-            if sct_values[last_idx] is not None:
-                # Move current to last
-                if self.last_readings['Sct'] is not None:
-                    self.last_result_labels['Sct'].config(
-                        text=f"{self.last_readings['Sct']:.4f} V",
-                        fg="gray"
-                    )
-                # Update current
-                self.result_labels['Sct'].config(text=f"{sct_values[last_idx]:.4f} V", fg="green")
-                self.last_readings['Sct'] = sct_values[last_idx]
-            
-            if ref_values[last_idx] is not None:
-                # Move current to last
-                if self.last_readings['Ref'] is not None:
-                    self.last_result_labels['Ref'].config(
-                        text=f"{self.last_readings['Ref']:.4f} V",
-                        fg="gray"
-                    )
-                # Update current
-                self.result_labels['Ref'].config(text=f"{ref_values[last_idx]:.4f} V", fg="green")
-                self.last_readings['Ref'] = ref_values[last_idx]
+            # Update current readings and move previous to last for each channel
+            for channel in self.channels:
+                values = channel_values.get(channel, [])
+                if len(values) <= last_idx:
+                    continue
+                value = values[last_idx]
+                if value is not None:
+                    if self.last_readings.get(channel) is not None:
+                        self.last_result_labels[channel].config(
+                            text=f"{self.last_readings[channel]:.4f} V",
+                            fg="gray"
+                        )
+                    self.result_labels[channel].config(text=f"{value:.4f} V", fg="green")
+                    self.last_readings[channel] = value
         
         self.status_label.config(text="Sweep complete", fg="green")
     
-    def plot_sweep_results(self, led_powers, trx_values, sct_values, ref_values):
+    def plot_sweep_results(self, led_powers, channel_values):
         """Plot sweep results in a pop-up window"""
         try:
-            # Filter out None values for plotting
-            valid_indices = [i for i in range(len(led_powers)) 
-                           if trx_values[i] is not None and 
-                              sct_values[i] is not None and 
-                              ref_values[i] is not None]
+            # Prepare per-channel filtered data
+            plot_data = {}
+            for channel in self.channels:
+                vals = channel_values.get(channel, [])
+                points = [(p, v) for p, v in zip(led_powers, vals) if v is not None]
+                if points:
+                    plot_data[channel] = points
             
-            if not valid_indices:
+            if not plot_data:
                 messagebox.showwarning("Plot Warning", "No valid data to plot")
                 return
             
-            plot_powers = [led_powers[i] for i in valid_indices]
-            plot_trx = [trx_values[i] for i in valid_indices]
-            plot_sct = [sct_values[i] for i in valid_indices]
-            plot_ref = [ref_values[i] for i in valid_indices]
-            
-            # Create plot
             fig, ax = plt.subplots(figsize=(10, 6))
             
-            ax.plot(plot_powers, plot_trx, 'o-', label='Trx', linewidth=2, markersize=6)
-            ax.plot(plot_powers, plot_sct, 's-', label='Sct', linewidth=2, markersize=6)
-            ax.plot(plot_powers, plot_ref, '^-', label='Ref', linewidth=2, markersize=6)
+            markers = ['o', 's', '^', 'd', 'v', 'x']
+            for idx, (channel, points) in enumerate(plot_data.items()):
+                m = markers[idx % len(markers)]
+                powers = [p for p, _ in points]
+                values = [v for _, v in points]
+                ax.plot(powers, values, f'{m}-', label=channel, linewidth=2, markersize=6)
             
             ax.set_xlabel('LED Power (%)', fontsize=12)
             ax.set_ylabel('Voltage (V)', fontsize=12)
