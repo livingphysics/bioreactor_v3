@@ -109,18 +109,52 @@ class ODManualReadingGUI:
                                           fg="gray")
         self.last_reading_label.pack(anchor='w', padx=10)
         
-        # Get channel names from config (will be populated after initialization)
-        self.channels = []
+        # Get channel names from config
+        try:
+            config = Config()
+            od_channels = getattr(config, 'OD_ADC_CHANNELS', {})
+            self.channels = list(od_channels.keys()) if od_channels else ['Trx', 'Sct', 'Ref']
+        except:
+            # Fallback to default channels
+            self.channels = ['Trx', 'Sct', 'Ref']
+        
+        # Initialize last readings dictionary
+        self.last_readings = {ch: None for ch in self.channels}
+        
+        # Initialize result labels dictionaries
         self.result_labels = {}
         self.last_result_labels = {}
         
-        # Header row (will be populated after channels are known)
-        self.header_frame = tk.Frame(results_frame)
-        self.header_frame.pack(fill="x", pady=5)
+        # Header row
+        header_frame = tk.Frame(results_frame)
+        header_frame.pack(fill="x", pady=5)
+        tk.Label(header_frame, text="Channel", width=10, anchor='w', 
+                font=("Arial", 10, "bold")).pack(side='left', padx=10)
+        tk.Label(header_frame, text="Current", width=15, anchor='w',
+                font=("Arial", 10, "bold")).pack(side='left', padx=10)
+        tk.Label(header_frame, text="Last", width=15, anchor='w',
+                font=("Arial", 10, "bold")).pack(side='left', padx=10)
         
-        # Channel rows container (will be populated after channels are known)
-        self.channel_rows_frame = tk.Frame(results_frame)
-        self.channel_rows_frame.pack(fill="x")
+        # Create channel rows
+        for channel in self.channels:
+            frame = tk.Frame(results_frame)
+            frame.pack(fill="x", pady=5)
+            
+            label = tk.Label(frame, text=f"{channel}:", width=10, anchor='w', 
+                            font=("Arial", 11))
+            label.pack(side='left', padx=10)
+            
+            # Current reading
+            value_label = tk.Label(frame, text="--- V", width=15, anchor='w',
+                                  font=("Arial", 11, "bold"), fg="blue")
+            value_label.pack(side='left', padx=10)
+            self.result_labels[channel] = value_label
+            
+            # Last reading
+            last_value_label = tk.Label(frame, text="--- V", width=15, anchor='w',
+                                       font=("Arial", 11), fg="gray")
+            last_value_label.pack(side='left', padx=10)
+            self.last_result_labels[channel] = last_value_label
         
         # Info label
         info_label = tk.Label(self.root, 
@@ -162,53 +196,6 @@ class ODManualReadingGUI:
     
     def update_status_ready(self):
         """Update UI when initialization is complete"""
-        # Get channel names from config
-        if self.bioreactor and self.bioreactor.cfg:
-            od_channels = getattr(self.bioreactor.cfg, 'OD_ADC_CHANNELS', {})
-            self.channels = list(od_channels.keys()) if od_channels else ['Trx', 'Sct', 'Ref']
-        else:
-            # Fallback to default channels
-            self.channels = ['Trx', 'Sct', 'Ref']
-        
-        # Initialize last readings dictionary
-        self.last_readings = {ch: None for ch in self.channels}
-        
-        # Populate header row
-        for widget in self.header_frame.winfo_children():
-            widget.destroy()
-        tk.Label(self.header_frame, text="Channel", width=10, anchor='w', 
-                font=("Arial", 10, "bold")).pack(side='left', padx=10)
-        tk.Label(self.header_frame, text="Current", width=15, anchor='w',
-                font=("Arial", 10, "bold")).pack(side='left', padx=10)
-        tk.Label(self.header_frame, text="Last", width=15, anchor='w',
-                font=("Arial", 10, "bold")).pack(side='left', padx=10)
-        
-        # Populate channel rows
-        for widget in self.channel_rows_frame.winfo_children():
-            widget.destroy()
-        self.result_labels = {}
-        self.last_result_labels = {}
-        
-        for channel in self.channels:
-            frame = tk.Frame(self.channel_rows_frame)
-            frame.pack(fill="x", pady=5)
-            
-            label = tk.Label(frame, text=f"{channel}:", width=10, anchor='w', 
-                            font=("Arial", 11))
-            label.pack(side='left', padx=10)
-            
-            # Current reading
-            value_label = tk.Label(frame, text="--- V", width=15, anchor='w',
-                                  font=("Arial", 11, "bold"), fg="blue")
-            value_label.pack(side='left', padx=10)
-            self.result_labels[channel] = value_label
-            
-            # Last reading
-            last_value_label = tk.Label(frame, text="--- V", width=15, anchor='w',
-                                       font=("Arial", 11), fg="gray")
-            last_value_label.pack(side='left', padx=10)
-            self.last_result_labels[channel] = last_value_label
-        
         self.status_label.config(text="Ready", fg="green")
         self.read_button.config(state="normal")
         self.sweep_button.config(state="normal")
