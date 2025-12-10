@@ -92,3 +92,7 @@ class Config:
     AUTO_PRESSURIZE_DURATION: float = 10.0  # Duration in seconds for pressurization
     AUTO_PRESSURIZE_PAUSE: float = 0.0  # Wait time between pressurization and CO2 injection (if CO2 duration > 0)
     AUTO_PRESSURIZE_CO2_DURATION: float = 0.0  # Duration in seconds for CO2 injection (0 = no CO2 injection)
+    
+    # Controller warmup times
+    TEMP_CONTROLLER_WARMUP_TIME: float = 300.0  # Wait time in seconds before starting temperature PID feedback control
+    CO2_CONTROLLER_WARMUP_TIME: float = 300.0  # Wait time in seconds before starting CO2 PID feedback control

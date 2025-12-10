@@ -655,7 +655,8 @@ def pid_co2_controller(
     kp: float = 0.0001,
     ki: float = 0.00001,
     kd: float = 0.0,
-    elapsed: Optional[float] = None
+    elapsed: Optional[float] = None,
+    warmup_time: Optional[float] = None  # If None, uses config.CO2_CONTROLLER_WARMUP_TIME
 ) -> None:
     """
     PID controller with base rate lookup table for CO2 feedback control.
@@ -663,13 +664,15 @@ def pid_co2_controller(
     Adjusts CO2 injection duration based on error (setpoint - current CO2) plus base rate.
     Output = PID + BaseRate
     
+    During warmup period, uses only base rate (no PID feedback).
+    After warmup, uses PID + BaseRate.
+    
     Sequence:
     1. Read current CO2_2 measurement
-    2. Calculate error (setpoint - current)
-    3. Calculate PID control output
-    4. Get base rate from lookup table
-    5. Duration = PID output + BaseRate
-    6. Pressurize and inject with combined duration
+    2. Check if warmup period has elapsed
+    3. During warmup: use base rate only
+    4. After warmup: calculate error, PID output, and combine with base rate
+    5. Pressurize and inject with combined duration
     
     Args:
         bioreactor: Bioreactor instance
@@ -681,12 +684,17 @@ def pid_co2_controller(
         ki: Integral gain for controller (default: 0.00001)
         kd: Derivative gain for controller (default: 0.0)
         elapsed: Time elapsed since job started (optional)
+        warmup_time: Wait time in seconds before starting PID feedback control (default: uses config.CO2_CONTROLLER_WARMUP_TIME)
     """
     global _co2_duration
     
     if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
         bioreactor.logger.warning("Relays not initialized or RelayController not available")
         return
+    
+    # Get warmup time from config if not provided
+    if warmup_time is None:
+        warmup_time = getattr(bioreactor.cfg, 'CO2_CONTROLLER_WARMUP_TIME', 120.0) if bioreactor.cfg else 120.0
     
     # Initialize controller state
     if not hasattr(bioreactor, '_co2_integral'):
@@ -695,6 +703,8 @@ def pid_co2_controller(
         bioreactor._co2_last_error = 0.0
     if not hasattr(bioreactor, '_co2_last_time'):
         bioreactor._co2_last_time = time.time()
+    if not hasattr(bioreactor, '_co2_start_time'):
+        bioreactor._co2_start_time = time.time()
     
     # Get current CO2 measurement from plot data
     if len(_plot_data['co2_2']) == 0:
@@ -718,6 +728,29 @@ def pid_co2_controller(
         _co2_duration = 0.0
         # Still run pump/injection with duration 0
         pressurize_and_inject_co2(bioreactor, pressurize_duration, pause, 0.0, elapsed)
+        return
+    
+    # Check if warmup period has elapsed
+    elapsed_time = time.time() - bioreactor._co2_start_time
+    if elapsed_time < warmup_time:
+        # During warmup, use base rate only (no PID feedback)
+        base_rate = _CO2_BASE_RATE_LOOKUP.get(setpoint_ppm, 0.0)
+        new_co2_duration = max(0.0, min(base_rate, 2.0))  # Clamp to 0-2 seconds
+        
+        # Update global duration
+        _co2_duration = new_co2_duration
+        
+        # Log warmup status
+        bioreactor.logger.info(
+            f"CO2 PID (warmup): setpoint={setpoint_ppm:.1f} ppm, "
+            f"current={current_co2:.1f} ppm, "
+            f"base_rate={base_rate:.6f}, "
+            f"duration={_co2_duration:.3f}s, "
+            f"time_remaining={warmup_time - elapsed_time:.1f}s"
+        )
+        
+        # Pressurize and inject with base rate only
+        pressurize_and_inject_co2(bioreactor, pressurize_duration, pause, _co2_duration, elapsed)
         return
     
     # Calculate error (setpoint - current)
