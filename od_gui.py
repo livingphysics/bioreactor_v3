@@ -9,11 +9,14 @@ When the button is pressed:
 """
 
 import tkinter as tk
+from tkinter import ttk
 from tkinter import messagebox
 import sys
 import os
 import time
 import threading
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Add src directory to path to allow imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -49,6 +52,23 @@ class ODManualReadingGUI:
                                      fg="orange", font=("Arial", 10))
         self.status_label.pack(pady=5)
         
+        # LED power control frame
+        led_frame = tk.Frame(self.root)
+        led_frame.pack(pady=10)
+        
+        led_label = tk.Label(led_frame, text="LED Power:", font=("Arial", 10))
+        led_label.pack(side='left', padx=5)
+        
+        # Create dropdown for LED power (0-30%)
+        self.led_power_var = tk.StringVar(value="15")
+        led_power_values = [str(i) for i in range(0, 31)]  # 0 to 30 in 1% increments
+        self.led_power_combo = ttk.Combobox(led_frame, textvariable=self.led_power_var,
+                                            values=led_power_values, width=8, state="readonly")
+        self.led_power_combo.pack(side='left', padx=5)
+        
+        percent_label = tk.Label(led_frame, text="%", font=("Arial", 10))
+        percent_label.pack(side='left', padx=2)
+        
         # Button frame
         button_frame = tk.Frame(self.root)
         button_frame.pack(pady=20)
@@ -60,7 +80,16 @@ class ODManualReadingGUI:
                                      bg="#4CAF50", fg="white",
                                      width=20, height=2,
                                      state="disabled")
-        self.read_button.pack(pady=10)
+        self.read_button.pack(pady=5)
+        
+        # LED sweep button
+        self.sweep_button = tk.Button(button_frame, text="LED Power Sweep (0-20%)", 
+                                      command=self.run_led_sweep,
+                                      font=("Arial", 11, "bold"),
+                                      bg="#2196F3", fg="white",
+                                      width=20, height=2,
+                                      state="disabled")
+        self.sweep_button.pack(pady=5)
         
         # Results frame
         results_frame = tk.LabelFrame(self.root, text="OD Voltage Readings", 
@@ -87,7 +116,7 @@ class ODManualReadingGUI:
         
         # Info label
         info_label = tk.Label(self.root, 
-                             text="Click 'Take OD Reading' to measure voltages.\n"
+                             text="Select LED power (0-30%), then click 'Take OD Reading'.\n"
                                   "Stirrer will turn on to 15%, LED will turn on for 1s,\n"
                                   "then readings averaged over 0.5s.",
                              font=("Arial", 9), fg="gray")
@@ -127,6 +156,7 @@ class ODManualReadingGUI:
         """Update UI when initialization is complete"""
         self.status_label.config(text="Ready", fg="green")
         self.read_button.config(state="normal")
+        self.sweep_button.config(state="normal")
     
     def update_status_error(self, error_msg):
         """Update UI when initialization fails"""
@@ -154,10 +184,16 @@ class ODManualReadingGUI:
                 if self.bioreactor.is_component_initialized('stirrer'):
                     set_stirrer_speed(self.bioreactor, 15.0)
                 
+                # Get LED power from dropdown
+                try:
+                    led_power = float(self.led_power_var.get())
+                except (ValueError, AttributeError):
+                    led_power = 15.0  # Default if conversion fails
+                
                 # Measure OD: LED on for 1s, then average over 0.5s
                 # This matches the measure_od function behavior
                 od_results = measure_od(self.bioreactor, 
-                                       led_power=15.0,  # LED power level
+                                       led_power=led_power,  # LED power level from dropdown
                                        averaging_duration=0.5,  # Average over 0.5 seconds
                                        channel_name='all')
                 
@@ -196,6 +232,131 @@ class ODManualReadingGUI:
     def enable_button(self):
         """Re-enable the read button"""
         self.read_button.config(state="normal", text="Take OD Reading")
+        self.sweep_button.config(state="normal")
+    
+    def run_led_sweep(self):
+        """Run LED power sweep from 0% to 20% in 1% increments"""
+        if not self.initialized or self.bioreactor is None:
+            messagebox.showerror("Error", "Bioreactor not initialized")
+            return
+        
+        # Disable buttons during sweep
+        self.read_button.config(state="disabled")
+        self.sweep_button.config(state="disabled", text="Sweeping...")
+        self.status_label.config(text="Running LED power sweep...", fg="orange")
+        
+        # Clear previous results
+        for channel in self.result_labels:
+            self.result_labels[channel].config(text="--- V", fg="blue")
+        
+        # Run sweep in separate thread
+        def sweep_thread():
+            try:
+                # Turn on stirrer to 15% before starting sweep
+                if self.bioreactor.is_component_initialized('stirrer'):
+                    set_stirrer_speed(self.bioreactor, 15.0)
+                
+                # Storage for results
+                led_powers = []
+                trx_values = []
+                sct_values = []
+                ref_values = []
+                
+                # Sweep from 0% to 20% in 1% increments
+                for led_power in range(0, 21):
+                    self.root.after(0, lambda p=led_power: self.status_label.config(
+                        text=f"Sweeping... LED Power: {p}%", fg="orange"))
+                    
+                    # Measure OD at this LED power
+                    od_results = measure_od(self.bioreactor,
+                                          led_power=float(led_power),
+                                          averaging_duration=0.5,
+                                          channel_name='all')
+                    
+                    if od_results:
+                        led_powers.append(led_power)
+                        trx_values.append(od_results.get('Trx', None))
+                        sct_values.append(od_results.get('Sct', None))
+                        ref_values.append(od_results.get('Ref', None))
+                    
+                    # Small delay between measurements
+                    time.sleep(0.2)
+                
+                # Update UI with final results
+                if led_powers:
+                    self.root.after(0, lambda: self.update_results_from_sweep(
+                        led_powers, trx_values, sct_values, ref_values))
+                    self.root.after(0, lambda: self.plot_sweep_results(
+                        led_powers, trx_values, sct_values, ref_values))
+                else:
+                    self.root.after(0, lambda: self.update_status_error("No valid readings collected"))
+                    
+            except Exception as e:
+                error_msg = f"Error during sweep: {e}"
+                print(error_msg)
+                self.root.after(0, lambda: self.update_status_error(error_msg))
+            finally:
+                # Re-enable buttons
+                self.root.after(0, self.enable_sweep_button)
+        
+        threading.Thread(target=sweep_thread, daemon=True).start()
+    
+    def update_results_from_sweep(self, led_powers, trx_values, sct_values, ref_values):
+        """Update GUI with results from the last sweep measurement"""
+        if led_powers:
+            last_idx = len(led_powers) - 1
+            if trx_values[last_idx] is not None:
+                self.result_labels['Trx'].config(text=f"{trx_values[last_idx]:.4f} V", fg="green")
+            if sct_values[last_idx] is not None:
+                self.result_labels['Sct'].config(text=f"{sct_values[last_idx]:.4f} V", fg="green")
+            if ref_values[last_idx] is not None:
+                self.result_labels['Ref'].config(text=f"{ref_values[last_idx]:.4f} V", fg="green")
+        
+        self.status_label.config(text="Sweep complete", fg="green")
+    
+    def plot_sweep_results(self, led_powers, trx_values, sct_values, ref_values):
+        """Plot sweep results in a pop-up window"""
+        try:
+            # Filter out None values for plotting
+            valid_indices = [i for i in range(len(led_powers)) 
+                           if trx_values[i] is not None and 
+                              sct_values[i] is not None and 
+                              ref_values[i] is not None]
+            
+            if not valid_indices:
+                messagebox.showwarning("Plot Warning", "No valid data to plot")
+                return
+            
+            plot_powers = [led_powers[i] for i in valid_indices]
+            plot_trx = [trx_values[i] for i in valid_indices]
+            plot_sct = [sct_values[i] for i in valid_indices]
+            plot_ref = [ref_values[i] for i in valid_indices]
+            
+            # Create plot
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            ax.plot(plot_powers, plot_trx, 'o-', label='Trx', linewidth=2, markersize=6)
+            ax.plot(plot_powers, plot_sct, 's-', label='Sct', linewidth=2, markersize=6)
+            ax.plot(plot_powers, plot_ref, '^-', label='Ref', linewidth=2, markersize=6)
+            
+            ax.set_xlabel('LED Power (%)', fontsize=12)
+            ax.set_ylabel('Voltage (V)', fontsize=12)
+            ax.set_title('OD Voltage vs LED Power', fontsize=14, fontweight='bold')
+            ax.grid(True, alpha=0.3)
+            ax.legend(fontsize=11)
+            
+            plt.tight_layout()
+            plt.show()
+            
+        except Exception as e:
+            error_msg = f"Error plotting results: {e}"
+            print(error_msg)
+            messagebox.showerror("Plot Error", error_msg)
+    
+    def enable_sweep_button(self):
+        """Re-enable the sweep button"""
+        self.read_button.config(state="normal")
+        self.sweep_button.config(state="normal", text="LED Power Sweep (0-20%)")
     
     def on_closing(self):
         """Cleanup when window is closed"""
