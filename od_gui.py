@@ -19,7 +19,7 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src import Bioreactor, Config
-from src.io import measure_od, set_led
+from src.io import measure_od, set_led, set_stirrer_speed, stop_stirrer
 
 
 class ODManualReadingGUI:
@@ -88,7 +88,8 @@ class ODManualReadingGUI:
         # Info label
         info_label = tk.Label(self.root, 
                              text="Click 'Take OD Reading' to measure voltages.\n"
-                                  "LED will turn on for 1s, then readings averaged over 0.5s.",
+                                  "Stirrer will turn on to 15%, LED will turn on for 1s,\n"
+                                  "then readings averaged over 0.5s.",
                              font=("Arial", 9), fg="gray")
         info_label.pack(pady=10)
     
@@ -105,7 +106,7 @@ class ODManualReadingGUI:
                     'i2c': True,  # Needed for OD sensor
                     'temp_sensor': False,
                     'peltier_driver': False,
-                    'stirrer': False,
+                    'stirrer': True,  # Enable stirrer
                     'led': True,  # Enable LED
                     'optical_density': True,  # Enable OD sensor
                 }
@@ -149,10 +150,14 @@ class ODManualReadingGUI:
         # Run measurement in separate thread to avoid blocking UI
         def measurement_thread():
             try:
+                # Turn on stirrer to 15% before taking reading
+                if self.bioreactor.is_component_initialized('stirrer'):
+                    set_stirrer_speed(self.bioreactor, 15.0)
+                
                 # Measure OD: LED on for 1s, then average over 0.5s
                 # This matches the measure_od function behavior
                 od_results = measure_od(self.bioreactor, 
-                                       led_power=30.0,  # LED power level
+                                       led_power=15.0,  # LED power level
                                        averaging_duration=0.5,  # Average over 0.5 seconds
                                        channel_name='all')
                 
@@ -199,6 +204,9 @@ class ODManualReadingGUI:
                 # Turn off LED if it's on
                 if self.bioreactor.is_component_initialized('led'):
                     self.bioreactor.led_driver.off()
+                # Stop stirrer
+                if self.bioreactor.is_component_initialized('stirrer'):
+                    stop_stirrer(self.bioreactor)
                 self.bioreactor.finish()
             except:
                 pass
