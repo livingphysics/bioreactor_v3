@@ -29,11 +29,14 @@ class ODManualReadingGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Manual OD Reading")
-        self.root.geometry("500x400")
+        self.root.geometry("500x800")
         
         # Initialize bioreactor
         self.bioreactor = None
         self.initialized = False
+        
+        # Store last readings
+        self.last_readings = {'Trx': None, 'Sct': None, 'Ref': None}
         
         # Create widgets
         self.create_widgets()
@@ -108,7 +111,18 @@ class ODManualReadingGUI:
         
         # Results labels
         self.result_labels = {}
+        self.last_result_labels = {}
         channels = ['Trx', 'Sct', 'Ref']
+        
+        # Header row
+        header_frame = tk.Frame(results_frame)
+        header_frame.pack(fill="x", pady=5)
+        tk.Label(header_frame, text="Channel", width=10, anchor='w', 
+                font=("Arial", 10, "bold")).pack(side='left', padx=10)
+        tk.Label(header_frame, text="Current", width=15, anchor='w',
+                font=("Arial", 10, "bold")).pack(side='left', padx=10)
+        tk.Label(header_frame, text="Last", width=15, anchor='w',
+                font=("Arial", 10, "bold")).pack(side='left', padx=10)
         
         for i, channel in enumerate(channels):
             frame = tk.Frame(results_frame)
@@ -118,11 +132,17 @@ class ODManualReadingGUI:
                             font=("Arial", 11))
             label.pack(side='left', padx=10)
             
+            # Current reading
             value_label = tk.Label(frame, text="--- V", width=15, anchor='w',
                                   font=("Arial", 11, "bold"), fg="blue")
             value_label.pack(side='left', padx=10)
-            
             self.result_labels[channel] = value_label
+            
+            # Last reading
+            last_value_label = tk.Label(frame, text="--- V", width=15, anchor='w',
+                                       font=("Arial", 11), fg="gray")
+            last_value_label.pack(side='left', padx=10)
+            self.last_result_labels[channel] = last_value_label
         
         # Info label
         info_label = tk.Label(self.root, 
@@ -242,13 +262,29 @@ class ODManualReadingGUI:
                 fg="gray"
             )
         
+        # Update current readings and move previous to last
         for channel, value in od_results.items():
             if channel in self.result_labels:
+                # Move current reading to last reading
+                if self.last_readings[channel] is not None:
+                    self.last_result_labels[channel].config(
+                        text=f"{self.last_readings[channel]:.4f} V",
+                        fg="gray"
+                    )
+                else:
+                    self.last_result_labels[channel].config(
+                        text="--- V",
+                        fg="gray"
+                    )
+                
+                # Update current reading
                 if value is not None:
                     self.result_labels[channel].config(
                         text=f"{value:.4f} V", 
                         fg="green"
                     )
+                    # Store as last reading for next time
+                    self.last_readings[channel] = value
                 else:
                     self.result_labels[channel].config(
                         text="Error", 
@@ -341,12 +377,39 @@ class ODManualReadingGUI:
                 fg="blue"
             )
             
+            # Update current readings and move previous to last
             if trx_values[last_idx] is not None:
+                # Move current to last
+                if self.last_readings['Trx'] is not None:
+                    self.last_result_labels['Trx'].config(
+                        text=f"{self.last_readings['Trx']:.4f} V",
+                        fg="gray"
+                    )
+                # Update current
                 self.result_labels['Trx'].config(text=f"{trx_values[last_idx]:.4f} V", fg="green")
+                self.last_readings['Trx'] = trx_values[last_idx]
+            
             if sct_values[last_idx] is not None:
+                # Move current to last
+                if self.last_readings['Sct'] is not None:
+                    self.last_result_labels['Sct'].config(
+                        text=f"{self.last_readings['Sct']:.4f} V",
+                        fg="gray"
+                    )
+                # Update current
                 self.result_labels['Sct'].config(text=f"{sct_values[last_idx]:.4f} V", fg="green")
+                self.last_readings['Sct'] = sct_values[last_idx]
+            
             if ref_values[last_idx] is not None:
+                # Move current to last
+                if self.last_readings['Ref'] is not None:
+                    self.last_result_labels['Ref'].config(
+                        text=f"{self.last_readings['Ref']:.4f} V",
+                        fg="gray"
+                    )
+                # Update current
                 self.result_labels['Ref'].config(text=f"{ref_values[last_idx]:.4f} V", fg="green")
+                self.last_readings['Ref'] = ref_values[last_idx]
         
         self.status_label.config(text="Sweep complete", fg="green")
     
