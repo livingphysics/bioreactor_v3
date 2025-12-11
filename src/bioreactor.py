@@ -75,9 +75,23 @@ class Bioreactor():
 
         # Set up CSV writer for sensor data
         # This can be customized based on your sensor configuration
+        fieldnames = ['time']
         if config and hasattr(config, 'SENSOR_LABELS'):
-            sensor_keys = list(config.SENSOR_LABELS.keys())
-            fieldnames = ['time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]
+            labels = config.SENSOR_LABELS
+            # Include all configured labels
+            fieldnames += [labels[k] for k in labels.keys()]
+            
+            # Ensure OD channels from OD_ADC_CHANNELS are present even if labels missing
+            od_cfg = getattr(config, 'OD_ADC_CHANNELS', {}) or {}
+            for ch in od_cfg.keys():
+                label = (
+                    labels.get(f"od_{ch}") or
+                    labels.get(f"od_{ch.lower()}") or
+                    labels.get(f"od_{ch.upper()}") or
+                    f"OD_{ch}_V"
+                )
+                if label not in fieldnames:
+                    fieldnames.append(label)
         else:
             # Default fieldnames if no config provided
             fieldnames = ['time']

@@ -174,7 +174,14 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
         # Dynamic OD channels: keys like od_<name>
         for key in sorted(k for k in sensor_data.keys() if k.startswith('od_')):
             channel = key[3:]
-            label_key = labels.get(key) or labels.get(f"od_{channel}") or f"OD_{channel.upper()}_V"
+            label_key = (
+                labels.get(key)
+                or labels.get(key.lower())
+                or labels.get(f"od_{channel}")
+                or labels.get(f"od_{channel.lower()}")
+                or labels.get(f"od_{channel.upper()}")
+                or f"OD_{channel}_V"
+            )
             csv_row[label_key] = sensor_data[key]
         
         try:
