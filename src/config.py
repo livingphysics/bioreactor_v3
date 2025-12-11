@@ -14,7 +14,7 @@ class Config:
     LOG_FORMAT: str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     LOG_FILE: str = 'bioreactor.log'
     LOG_TO_TERMINAL: bool = True  # Print logs to terminal/console
-    CLEAR_LOG_ON_START: bool = True  # If True, clears/truncates the log file on startup
+    CLEAR_LOG_ON_START: bool = False  # If True, clears/truncates the log file on startup
     DATA_OUT_FILE: str = 'bioreactor_data.csv'
     USE_TIMESTAMPED_FILENAME: bool = True  # If True, adds timestamp prefix (e.g., "20250113_153000_bioreactor_data.csv"). If False, uses base filename only.
     
@@ -78,14 +78,14 @@ class Config:
 
     # Optical Density (OD) Configuration (ADS1115 ADC)
     OD_ADC_CHANNELS: dict[str, str] = {
-        'Trx': 'A0',
+        '90': 'A2',
         'Ref': 'A1',
-        'Sct': 'A2',
+        '135': 'A0',
     }  # Dictionary mapping channel names to ADS1115 pins (A0-A3)
     
     # Auto-flush on initialization
     AUTO_FLUSH_ON_INIT: bool = False  # Automatically flush tank on startup
-    AUTO_FLUSH_DURATION: float = 30.0  # Duration in seconds for tank flush
+    AUTO_FLUSH_DURATION: float = 10.0  # Duration in seconds for tank flush
     
     # Auto-pressurize on initialization
     AUTO_PRESSURIZE_ON_INIT: bool = True  # Automatically pressurize chamber on startup
@@ -94,5 +94,5 @@ class Config:
     AUTO_PRESSURIZE_CO2_DURATION: float = 0.0  # Duration in seconds for CO2 injection (0 = no CO2 injection)
     
     # Controller warmup times
-    TEMP_CONTROLLER_WARMUP_TIME: float = 300.0  # Wait time in seconds before starting temperature PID feedback control
-    CO2_CONTROLLER_WARMUP_TIME: float = 300.0  # Wait time in seconds before starting CO2 PID feedback control
+    TEMP_CONTROLLER_WARMUP_TIME: float = 600.0  # Wait time in seconds before starting temperature PID feedback control
+    CO2_CONTROLLER_WARMUP_TIME: float = 600.0  # Wait time in seconds before starting CO2 PID feedback control

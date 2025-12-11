@@ -78,7 +78,7 @@ with Bioreactor(config) as reactor:
         (partial(temperature_pid_controller, setpoint=37.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
         
         # PID CO2 controller - maintains CO2 at setpoint using PID feedback control
-        (partial(pid_co2_controller, setpoint_ppm=50000.0, pressurize_duration=5.0, pause=5.0, kp=0.00001, ki=0.00000005, kd=0.0), 30, True),  # Control CO2 every 30 seconds
+        (partial(pid_co2_controller, setpoint_ppm=50000.0, pressurize_duration=5.0, pause=5.0, kp=0.00001, ki=0.00000002, kd=0.0), 30, True),  # Control CO2 every 30 seconds
     ]
     
     # Run immediate CO2 injection before starting scheduled jobs
