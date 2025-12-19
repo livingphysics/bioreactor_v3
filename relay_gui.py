@@ -151,7 +151,8 @@ class RelayGUI:
                     'led': False,
                     'optical_density': False,
                 }
-                
+                config.STIRRER_PWM_PIN: int = 21
+                STIRRER_PWM_FREQ: int = 25000
                 self.bioreactor = Bioreactor(config)
                 self.stirrer_initialized = True
                 
