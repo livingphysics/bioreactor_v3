@@ -212,6 +212,7 @@ class TemperatureControlGUI:
         self.ax.set_ylabel('Temperature (°C)', fontsize=10)
         self.ax.set_title('Real-time Temperature', fontsize=12, fontweight='bold')
         self.ax.grid(True, alpha=0.3)
+        self.ax.set_ylim(10, 50)  # Fixed y-axis limits
         
         # Initialize plot lines
         self.temp_line, = self.ax.plot([], [], 'b-', linewidth=2, label='Temperature')
@@ -406,16 +407,12 @@ class TemperatureControlGUI:
                         self.temp_line.set_data(list(self.time_data), list(self.temp_data))
                         self.setpoint_line.set_data(list(self.time_data), list(self.setpoint_data))
                         
-                        # Auto-scale axes
+                        # Auto-scale x-axis, fixed y-axis limits (10-50°C)
                         if len(self.time_data) > 1:
                             self.ax.set_xlim(max(0, elapsed - 300), max(300, elapsed + 10))
-                            all_temps = list(self.temp_data) + [self.setpoint]
-                            temp_min = min(all_temps) - 2
-                            temp_max = max(all_temps) + 2
-                            self.ax.set_ylim(temp_min, temp_max)
                         else:
                             self.ax.set_xlim(0, 300)
-                            self.ax.set_ylim(current_temp - 5, current_temp + 5)
+                        self.ax.set_ylim(10, 50)  # Fixed y-axis limits
                         
                         self.canvas.draw()
                 else:
