@@ -207,13 +207,23 @@ class TemperatureControlGUI:
         stirrer_frame = tk.LabelFrame(left_panel, text="Stirrer Control", font=("Arial", 12, "bold"), padx=10, pady=10)
         stirrer_frame.pack(fill='x', pady=(0, 10))
         
-        # Duty cycle display
+        # Duty cycle display with editable text box
         duty_display_frame = tk.Frame(stirrer_frame)
         duty_display_frame.pack(pady=5)
         
         tk.Label(duty_display_frame, text="Duty Cycle:", font=("Arial", 10)).pack(side='left', padx=5)
-        self.duty_label = tk.Label(duty_display_frame, text="0.0%", font=("Arial", 10, "bold"), width=10)
-        self.duty_label.pack(side='left', padx=5)
+        # Editable text box to display and set current duty cycle
+        self.duty_display_text = tk.Entry(duty_display_frame, width=10, state="disabled", 
+                                          font=("Arial", 10, "bold"))
+        self.duty_display_text.insert(0, "0.0")
+        self.duty_display_text.pack(side='left', padx=5)
+        # Bind Enter key to update duty cycle
+        self.duty_display_text.bind('<Return>', lambda e: self.set_stirrer_duty_from_display())
+        tk.Label(duty_display_frame, text="%", font=("Arial", 10)).pack(side='left', padx=2)
+        self.duty_display_set_btn = tk.Button(duty_display_frame, text="Set", width=6, 
+                                              command=self.set_stirrer_duty_from_display,
+                                              state="disabled")
+        self.duty_display_set_btn.pack(side='left', padx=5)
         
         # PWM slider
         slider_frame = tk.Frame(stirrer_frame)
@@ -322,10 +332,15 @@ class TemperatureControlGUI:
         # Enable stirrer controls
         self.duty_scale.config(state="normal")
         self.stirrer_duty_entry.config(state="normal")
+        self.duty_display_text.config(state="normal")
+        self.duty_display_set_btn.config(state="normal")
         self.stirrer_stop_btn.config(state="normal")
         self.stirrer_20_btn.config(state="normal")
         self.stirrer_50_btn.config(state="normal")
         self.stirrer_100_btn.config(state="normal")
+        
+        # Read and display current stirrer duty cycle
+        self.read_stirrer_duty()
     
     def update_status_error(self, error_msg):
         """Update UI when initialization fails"""
@@ -474,17 +489,53 @@ class TemperatureControlGUI:
         duty = max(0.0, min(100.0, float(duty)))
         self.current_duty = duty
         
-        # Update UI
-        self.duty_label.config(text=f"{duty:.1f}%")
-        if update_scale:
-            self.duty_scale.set(duty)
-        self.stirrer_duty_entry.delete(0, tk.END)
-        self.stirrer_duty_entry.insert(0, f"{duty:.1f}")
-        
-        # Set stirrer speed
+        # Set stirrer speed first
         success = set_stirrer_speed(self.bioreactor, duty)
         if not success:
             messagebox.showerror("Error", "Failed to set stirrer speed")
+            return
+        
+        # Update UI to reflect actual state
+        self.update_stirrer_display(duty)
+    
+    def update_stirrer_display(self, duty):
+        """Update all stirrer UI elements to reflect current duty cycle"""
+        # Update editable text display box
+        self.duty_display_text.delete(0, tk.END)
+        self.duty_display_text.insert(0, f"{duty:.1f}")
+        
+        # Update slider
+        self.duty_scale.set(duty)
+        
+        # Update entry field
+        self.stirrer_duty_entry.delete(0, tk.END)
+        self.stirrer_duty_entry.insert(0, f"{duty:.1f}")
+        
+        self.current_duty = duty
+    
+    def set_stirrer_duty_from_display(self):
+        """Set stirrer duty cycle from the editable display text box"""
+        try:
+            duty = float(self.duty_display_text.get())
+            self.set_stirrer_duty(duty)
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter a valid number between 0 and 100")
+            # Restore previous value
+            self.duty_display_text.delete(0, tk.END)
+            self.duty_display_text.insert(0, f"{self.current_duty:.1f}")
+    
+    def read_stirrer_duty(self):
+        """Read current duty cycle from stirrer driver and update UI"""
+        if not self.initialized or self.bioreactor is None:
+            return
+        
+        try:
+            driver = getattr(self.bioreactor, 'stirrer_driver', None)
+            if driver is not None and self.bioreactor.is_component_initialized('stirrer'):
+                current_duty = driver.duty_cycle
+                self.update_stirrer_display(current_duty)
+        except Exception as e:
+            print(f"Error reading stirrer duty: {e}")
     
     def stop_stirrer_control(self):
         """Stop stirrer (set to 0%)"""
