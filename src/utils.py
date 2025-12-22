@@ -16,9 +16,6 @@ logger = logging.getLogger("Bioreactor.Utils")
 # Global storage for plotting data
 _plot_data = {
     'time': deque(maxlen=1000),
-    'co2': deque(maxlen=1000),
-    'co2_2': deque(maxlen=1000),
-    'o2': deque(maxlen=1000),
     'temperature': deque(maxlen=1000),
     'od_trx': deque(maxlen=1000),
     'od_sct': deque(maxlen=1000),
@@ -31,15 +28,14 @@ _plot_axes = None
 
 def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
     """
-    Measure, record, and plot sensor data from OD (Trx, Sct), Temperature, CO2, and O2.
+    Measure, record, and plot sensor data from OD (Trx, Sct) and Temperature.
     
     This composite function:
     1. Reads all sensor values
     2. Writes data to CSV file
-    3. Updates live plots in 3 subplots:
-       - Subplot 1: CO2 and CO2_2 (both sensors)
-       - Subplot 2: O2 and Temperature
-       - Subplot 3: OD voltages (Trx and Sct)
+    3. Updates live plots in 2 subplots:
+       - Subplot 1: Temperature
+       - Subplot 2: OD voltages (Trx and Sct)
     
     Args:
         bioreactor: Bioreactor instance
@@ -53,7 +49,7 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
     global _plot_fig, _plot_axes
     
     # Import IO functions
-    from .io import get_temperature, read_voltage, measure_od, read_co2, read_co2_2, read_o2
+    from .io import get_temperature, read_voltage, measure_od
     
     # Get elapsed time
     if elapsed is None:
@@ -63,33 +59,6 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
     
     # Read sensors
     sensor_data = {'time': elapsed}
-    
-    # Read CO2 (first sensor)
-    co2_value = read_co2(bioreactor)
-    if co2_value is not None:
-        sensor_data['co2'] = co2_value
-        _plot_data['co2'].append(co2_value)
-    else:
-        sensor_data['co2'] = float('nan')
-        _plot_data['co2'].append(float('nan'))
-    
-    # Read CO2 (second sensor)
-    co2_2_value = read_co2_2(bioreactor)
-    if co2_2_value is not None:
-        sensor_data['co2_2'] = co2_2_value
-        _plot_data['co2_2'].append(co2_2_value)
-    else:
-        sensor_data['co2_2'] = float('nan')
-        _plot_data['co2_2'].append(float('nan'))
-    
-    # Read O2
-    o2_value = read_o2(bioreactor)
-    if o2_value is not None:
-        sensor_data['o2'] = o2_value
-        _plot_data['o2'].append(o2_value)
-    else:
-        sensor_data['o2'] = float('nan')
-        _plot_data['o2'].append(float('nan'))
     
     # Read Temperature
     temp_value = get_temperature(bioreactor, sensor_index=0)
@@ -163,9 +132,6 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
         if config and hasattr(config, 'SENSOR_LABELS'):
             csv_row = {
                 'time': elapsed,
-                config.SENSOR_LABELS.get('co2', 'CO2_ppm'): sensor_data['co2'],
-                config.SENSOR_LABELS.get('co2_2', 'CO2_2_ppm'): sensor_data.get('co2_2', float('nan')),
-                config.SENSOR_LABELS.get('o2', 'O2_percent'): sensor_data['o2'],
                 config.SENSOR_LABELS.get('temperature', 'temperature_C'): sensor_data['temperature'],
             }
             # Add OD data using config labels
@@ -194,66 +160,41 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
     if len(_plot_data['time']) > 1:
         # Initialize figure if needed
         if _plot_fig is None:
-            _plot_fig, _plot_axes = plt.subplots(2, 2, figsize=(14, 10))
+            _plot_fig, _plot_axes = plt.subplots(1, 2, figsize=(14, 5))
             _plot_fig.suptitle('Live Sensor Monitoring', fontsize=14)
             plt.ion()  # Turn on interactive mode
             plt.show(block=False)
         
-        # Top left: CO2 (both sensors)
-        ax1 = _plot_axes[0, 0]
+        # Left: Temperature
+        ax1 = _plot_axes[0]
         ax1.clear()
-        ax1.set_title('CO2 Concentration')
-        ax1.set_ylabel('CO2 (ppm)')
+        ax1.set_title('Temperature')
+        ax1.set_xlabel('Time (seconds)')
+        ax1.set_ylabel('Temperature (°C)')
         ax1.grid(True, alpha=0.3)
-        if len(_plot_data['co2']) > 0:
-            ax1.plot(list(_plot_data['time']), list(_plot_data['co2']), 'b-', linewidth=2, label='CO2')
-        if len(_plot_data['co2_2']) > 0:
-            ax1.plot(list(_plot_data['time']), list(_plot_data['co2_2']), 'r--', linewidth=2, label='CO2_2')
+        if len(_plot_data['temperature']) > 0:
+            ax1.plot(list(_plot_data['time']), list(_plot_data['temperature']), 'g-', linewidth=2, label='Temperature')
         ax1.legend()
         
-        # Top right: O2
-        ax2 = _plot_axes[0, 1]
+        # Right: OD voltages
+        ax2 = _plot_axes[1]
         ax2.clear()
-        ax2.set_title('O2 Concentration')
-        ax2.set_ylabel('O2 (%)')
+        ax2.set_title('Optical Density Voltages')
+        ax2.set_xlabel('Time (seconds)')
+        ax2.set_ylabel('Voltage (V)')
         ax2.grid(True, alpha=0.3)
-        if len(_plot_data['o2']) > 0:
-            ax2.plot(list(_plot_data['time']), list(_plot_data['o2']), 'r-', linewidth=2, label='O2')
-        ax2.legend()
-        
-        # Bottom left: Temperature
-        ax3 = _plot_axes[1, 0]
-        ax3.clear()
-        ax3.set_title('Temperature')
-        ax3.set_xlabel('Time (seconds)')
-        ax3.set_ylabel('Temperature (°C)')
-        ax3.grid(True, alpha=0.3)
-        if len(_plot_data['temperature']) > 0:
-            ax3.plot(list(_plot_data['time']), list(_plot_data['temperature']), 'g-', linewidth=2, label='Temperature')
-        ax3.legend()
-        
-        # Bottom right: OD voltages
-        ax4 = _plot_axes[1, 1]
-        ax4.clear()
-        ax4.set_title('Optical Density Voltages')
-        ax4.set_xlabel('Time (seconds)')
-        ax4.set_ylabel('Voltage (V)')
-        ax4.grid(True, alpha=0.3)
         if len(_plot_data['od_trx']) > 0:
-            ax4.plot(list(_plot_data['time']), list(_plot_data['od_trx']), 'm-', linewidth=2, label='Trx')
+            ax2.plot(list(_plot_data['time']), list(_plot_data['od_trx']), 'm-', linewidth=2, label='Trx')
         if len(_plot_data['od_sct']) > 0:
-            ax4.plot(list(_plot_data['time']), list(_plot_data['od_sct']), 'c-', linewidth=2, label='Sct')
-        ax4.legend()
+            ax2.plot(list(_plot_data['time']), list(_plot_data['od_sct']), 'c-', linewidth=2, label='Sct')
+        ax2.legend()
         
         plt.tight_layout()
         plt.draw()
         plt.pause(0.01)  # Small pause to update display
     
     bioreactor.logger.info(
-        f"Sensor readings - CO2: {sensor_data.get('co2', 'N/A'):.1f} ppm, "
-        f"CO2_2: {sensor_data.get('co2_2', 'N/A'):.1f} ppm, "
-        f"O2: {sensor_data.get('o2', 'N/A'):.2f}%, "
-        f"Temp: {sensor_data.get('temperature', 'N/A'):.2f}°C, "
+        f"Sensor readings - Temp: {sensor_data.get('temperature', 'N/A'):.2f}°C, "
         f"OD Trx: {sensor_data.get('od_trx', 'N/A'):.4f}V, "
         f"OD Sct: {sensor_data.get('od_sct', 'N/A'):.4f}V"
     )
@@ -396,131 +337,4 @@ def temperature_pid_controller(
             f"Temperature PID: NaN detected, skipping update. "
             f"setpoint={setpoint:.2f}°C, current_temp={current_temp}"
         )
-
-
-def pressurize_and_inject_co2(
-    bioreactor,
-    pressurize_duration: float = 10.0,
-    pause: float = 30.0,
-    co2_duration: Union[float, str] = 1.0,
-    elapsed: Optional[float] = None
-) -> None:
-    """
-    Pressurize with pump_1, wait, then inject CO2.
-    
-    Sequence:
-    1. Turn ON pump_1 relay for pressurize_duration seconds
-    2. Turn OFF pump_1 relay
-    3. Wait pause seconds
-    4. Turn ON co2_solenoid relay for co2_duration seconds
-    5. Turn OFF co2_solenoid relay
-    
-    Args:
-        bioreactor: Bioreactor instance
-        pressurize_duration: Duration to run pump_1 (default: 10.0 seconds)
-        pause: Wait time between pump and CO2 injection (default: 30.0 seconds)
-        co2_duration: Duration for CO2 injection in seconds, or "auto" to calculate based on CO2_2 reading (default: 1.0 seconds)
-                      When "auto", calculates duration as CO2_2_value / 100000.0
-        elapsed: Time elapsed since job started (optional)
-    """
-    if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
-        bioreactor.logger.warning("Relays not initialized or RelayController not available")
-        return
-    
-    # Calculate CO2 duration if "auto"
-    actual_co2_duration = co2_duration
-    if co2_duration == "auto":
-        from .io import read_co2_2
-        co2_2_value = read_co2_2(bioreactor)
-        if co2_2_value is not None and not np.isnan(co2_2_value):
-            actual_co2_duration = co2_2_value / 100000.0
-            bioreactor.logger.info(f"Auto CO2 duration: CO2_2={co2_2_value:.1f} ppm, calculated duration={actual_co2_duration:.3f}s")
-        else:
-            bioreactor.logger.warning("CO2_2 reading unavailable for auto calculation, using default 1.0s")
-            actual_co2_duration = 1.0
-    
-    try:
-        # Pressurize
-        bioreactor.logger.info(f"Pressurizing: pump_1 ON for {pressurize_duration}s")
-        bioreactor.relay_controller.on('pump_1')
-        time.sleep(pressurize_duration)
-        bioreactor.relay_controller.off('pump_1')
-        
-        # Wait before CO2 injection
-        bioreactor.logger.info(f"Waiting {pause}s before CO2 injection...")
-        time.sleep(pause)
-        
-        # Inject CO2
-        bioreactor.logger.info(f"Injecting CO2: co2_solenoid ON for {actual_co2_duration:.3f}s")
-        bioreactor.relay_controller.on('co2_solenoid')
-        time.sleep(actual_co2_duration)
-        bioreactor.relay_controller.off('co2_solenoid')
-        bioreactor.logger.info("Pressurize and inject complete")
-        
-    except Exception as e:
-        bioreactor.logger.error(f"Error in pressurize_and_inject_co2: {e}")
-        # Emergency shutdown
-        try:
-            bioreactor.relay_controller.off('pump_1')
-            bioreactor.relay_controller.off('co2_solenoid')
-        except:
-            pass
-
-
-def inject_co2_delayed(
-    bioreactor,
-    delay_seconds: float = 0.0,
-    injection_duration_seconds: float = 1.0,
-    elapsed: Optional[float] = None
-) -> None:
-    """
-    Wait for specified delay, then inject CO2 for specified duration.
-    This is a one-time job that completes after the injection.
-    
-    Sequence:
-    1. Wait for delay_seconds
-    2. Turn ON co2_solenoid relay for injection_duration_seconds
-    3. Turn OFF co2_solenoid relay
-    4. Job completes
-    
-    Args:
-        bioreactor: Bioreactor instance
-        delay_seconds: Time to wait before starting CO2 injection (default: 0.0 seconds)
-        injection_duration_seconds: Duration to keep CO2 solenoid ON (default: 1.0 seconds)
-        elapsed: Time elapsed since job started (optional)
-    """
-    # Track if injection has already been executed (one-time job)
-    if not hasattr(bioreactor, '_co2_injection_executed'):
-        bioreactor._co2_injection_executed = False
-    
-    if bioreactor._co2_injection_executed:
-        return  # Already executed, skip
-    
-    if not bioreactor.is_component_initialized('relays') or not hasattr(bioreactor, 'relay_controller') or bioreactor.relay_controller is None:
-        bioreactor.logger.warning("Relays not initialized or RelayController not available")
-        return
-    
-    try:
-        # Mark as executed before starting to prevent duplicate runs
-        bioreactor._co2_injection_executed = True
-        
-        # Wait for specified delay
-        if delay_seconds > 0:
-            bioreactor.logger.info(f"Waiting {delay_seconds}s before CO2 injection...")
-            time.sleep(delay_seconds)
-        
-        # Inject CO2
-        bioreactor.logger.info(f"Starting CO2 injection ({injection_duration_seconds}s)...")
-        bioreactor.relay_controller.on('co2_solenoid')
-        time.sleep(injection_duration_seconds)
-        bioreactor.relay_controller.off('co2_solenoid')
-        bioreactor.logger.info("CO2 injection complete")
-        
-    except Exception as e:
-        bioreactor.logger.error(f"Error during CO2 injection: {e}")
-        # Emergency shutdown
-        try:
-            bioreactor.relay_controller.off('co2_solenoid')
-        except:
-            pass
 

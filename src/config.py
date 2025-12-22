@@ -20,10 +20,6 @@ class Config:
     # Component Initialization Control
     # Set to True to initialize, False to skip
     INIT_COMPONENTS: dict[str, bool] = {
-        'relays': True,
-        'co2_sensor': True,
-        'co2_sensor_2': True,  # Second CO2 sensor
-        'o2_sensor': True,
         'i2c': False,  # Only needed if other I2C components are used
         'temp_sensor': True,
         'peltier_driver': True,  # Enable PWM peltier driver (uses lgpio)
@@ -32,29 +28,8 @@ class Config:
         'optical_density': False,  # Optical density sensor (ADS1115)
     }
     
-    # Relay Configuration
-    RELAY_PINS: dict[str, int] = {
-        'relay_1': 6,
-        'relay_2': 13,
-        'relay_3': 19,
-        'relay_4': 26,
-    }  # Dictionary mapping relay names to GPIO pins
-    
-    # Sensor Configuration
-    # CO2 sensor uses serial interface
-    CO2_SERIAL_PORT: str = '/dev/ttyUSB0'
-    CO2_SERIAL_BAUDRATE: int = 9600
-    # Second CO2 sensor uses serial interface
-    CO2_SERIAL_PORT_2: str = '/dev/ttyUSB1'
-    CO2_SERIAL_BAUDRATE_2: int = 9600
-    # O2 sensor uses I2C (Atlas Scientific)
-    O2_SENSOR_ADDRESS: int = 108
-    
     # Sensor Labels for CSV output
     SENSOR_LABELS: dict = {
-        'co2': 'CO2_ppm',
-        'co2_2': 'CO2_2_ppm',
-        'o2': 'O2_percent',
         'temperature': 'temperature_C',
         'od_trx': 'OD_Trx_V',
         'od_sct': 'OD_Sct_V',
@@ -81,9 +56,3 @@ class Config:
         'Ref': 'A1',
         'Sct': 'A2',
     }  # Dictionary mapping channel names to ADS1115 pins (A0-A3)
-    
-    # Auto-pressurize on initialization
-    AUTO_PRESSURIZE_ON_INIT: bool = False  # Automatically pressurize chamber on startup
-    AUTO_PRESSURIZE_DURATION: float = 10.0  # Duration in seconds for pressurization
-    AUTO_PRESSURIZE_PAUSE: float = 0.0  # Wait time between pressurization and CO2 injection (if CO2 duration > 0)
-    AUTO_PRESSURIZE_CO2_DURATION: float = 0.0  # Duration in seconds for CO2 injection (0 = no CO2 injection)

@@ -100,19 +100,6 @@ class Bioreactor():
 
         self.logger.info("Bioreactor initialization complete.")
         
-        # Auto-pressurize on initialization if enabled
-        auto_pressurize = getattr(config, 'AUTO_PRESSURIZE_ON_INIT', False) if config else False
-        if auto_pressurize and self.is_component_initialized('relays'):
-            try:
-                from .utils import pressurize_and_inject_co2
-                pressurize_duration = getattr(config, 'AUTO_PRESSURIZE_DURATION', 10.0) if config else 10.0
-                pause = getattr(config, 'AUTO_PRESSURIZE_PAUSE', 30.0) if config else 30.0
-                co2_duration = getattr(config, 'AUTO_PRESSURIZE_CO2_DURATION', 0.0) if config else 0.0
-                self.logger.info(f"Starting automatic pressurization (duration: {pressurize_duration}s, pause: {pause}s, CO2: {co2_duration}s)...")
-                pressurize_and_inject_co2(self, pressurize_duration=pressurize_duration, pause=pause, co2_duration=co2_duration)
-                self.logger.info("Automatic pressurization completed.")
-            except Exception as e:
-                self.logger.error(f"Error during automatic pressurization: {e}")
 
     def _initialize_components(self, config) -> None:
         """Initialize components based on INIT_COMPONENTS configuration.
