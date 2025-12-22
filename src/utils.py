@@ -14,12 +14,12 @@ import numpy as np
 logger = logging.getLogger("Bioreactor.Utils")
 
 # Global storage for plotting data
+# OD channels will be dynamically added based on config
 _plot_data = {
     'time': deque(maxlen=1000),
     'temperature': deque(maxlen=1000),
-    'od_trx': deque(maxlen=1000),
-    'od_sct': deque(maxlen=1000),
 }
+PLOT_DATA_MAXLEN = 1000
 
 # Global figure and axes for plotting
 _plot_fig = None
@@ -28,14 +28,12 @@ _plot_axes = None
 
 def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
     """
-    Measure, record, and plot sensor data from OD (Trx, Sct) and Temperature.
+    Measure, record, and plot sensor data from OD channels and Temperature.
     
     This composite function:
-    1. Reads all sensor values
-    2. Writes data to CSV file
-    3. Updates live plots in 2 subplots:
-       - Subplot 1: Temperature
-       - Subplot 2: OD voltages (Trx and Sct)
+    1. Reads all sensor values (dynamically based on config)
+    2. Writes data to CSV file (field names from config)
+    3. Updates live plots dynamically based on configured OD channels
     
     Args:
         bioreactor: Bioreactor instance
@@ -57,6 +55,23 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
             bioreactor._start_time = time.time()
         elapsed = time.time() - bioreactor._start_time
     
+    # Get config
+    config = getattr(bioreactor, 'cfg', None)
+    
+    # Get OD channel names from config (keys of OD_ADC_CHANNELS dict)
+    od_channel_names = []
+    if config and hasattr(config, 'OD_ADC_CHANNELS'):
+        od_channel_names = list(config.OD_ADC_CHANNELS.keys())
+    elif hasattr(bioreactor, 'od_channels'):
+        # Fallback: use channel names from initialized od_channels
+        od_channel_names = list(bioreactor.od_channels.keys())
+    
+    # Initialize plot data storage for OD channels dynamically
+    for ch_name in od_channel_names:
+        plot_key = f"od_{ch_name.lower()}"
+        if plot_key not in _plot_data:
+            _plot_data[plot_key] = deque(maxlen=PLOT_DATA_MAXLEN)
+    
     # Read sensors
     sensor_data = {'time': elapsed}
     
@@ -69,80 +84,71 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
         sensor_data['temperature'] = float('nan')
         _plot_data['temperature'].append(float('nan'))
     
-    # Read OD channels (Trx, Sct, and Ref)
+    # Read OD channels dynamically based on config
     if bioreactor.is_component_initialized('led') and bioreactor.is_component_initialized('optical_density'):
         # Measure OD with LED on
         od_results = measure_od(bioreactor, led_power=led_power, averaging_duration=averaging_duration, channel_name='all')
-        if od_results:
-            trx_voltage = od_results.get('Trx', None)
-            sct_voltage = od_results.get('Sct', None)
-            ref_voltage = od_results.get('Ref', None)
-            
-            if trx_voltage is not None:
-                sensor_data['od_trx'] = trx_voltage
-                _plot_data['od_trx'].append(trx_voltage)
-            else:
-                sensor_data['od_trx'] = float('nan')
-                _plot_data['od_trx'].append(float('nan'))
-            
-            if sct_voltage is not None:
-                sensor_data['od_sct'] = sct_voltage
-                _plot_data['od_sct'].append(sct_voltage)
-            else:
-                sensor_data['od_sct'] = float('nan')
-                _plot_data['od_sct'].append(float('nan'))
-            
-            # Record Ref voltage in CSV but don't plot it
-            if ref_voltage is not None:
-                sensor_data['od_ref'] = ref_voltage
-            else:
-                sensor_data['od_ref'] = float('nan')
+        if od_results and od_channel_names:
+            for ch_name in od_channel_names:
+                plot_key = f"od_{ch_name.lower()}"
+                od_value = od_results.get(ch_name, None)
+                if od_value is not None:
+                    sensor_data[plot_key] = od_value
+                    _plot_data[plot_key].append(od_value)
+                else:
+                    sensor_data[plot_key] = float('nan')
+                    _plot_data[plot_key].append(float('nan'))
         else:
-            sensor_data['od_trx'] = float('nan')
-            sensor_data['od_sct'] = float('nan')
-            sensor_data['od_ref'] = float('nan')
-            _plot_data['od_trx'].append(float('nan'))
-            _plot_data['od_sct'].append(float('nan'))
+            # No results, set all to NaN
+            for ch_name in od_channel_names:
+                plot_key = f"od_{ch_name.lower()}"
+                sensor_data[plot_key] = float('nan')
+                _plot_data[plot_key].append(float('nan'))
     else:
         # Try reading without LED if OD sensor is available but LED is not
-        if bioreactor.is_component_initialized('optical_density'):
-            trx_voltage = read_voltage(bioreactor, 'Trx')
-            sct_voltage = read_voltage(bioreactor, 'Sct')
-            ref_voltage = read_voltage(bioreactor, 'Ref')
-            
-            sensor_data['od_trx'] = trx_voltage if trx_voltage is not None else float('nan')
-            sensor_data['od_sct'] = sct_voltage if sct_voltage is not None else float('nan')
-            sensor_data['od_ref'] = ref_voltage if ref_voltage is not None else float('nan')
-            _plot_data['od_trx'].append(sensor_data['od_trx'])
-            _plot_data['od_sct'].append(sensor_data['od_sct'])
+        if bioreactor.is_component_initialized('optical_density') and od_channel_names:
+            for ch_name in od_channel_names:
+                plot_key = f"od_{ch_name.lower()}"
+                od_value = read_voltage(bioreactor, ch_name)
+                sensor_data[plot_key] = od_value if od_value is not None else float('nan')
+                _plot_data[plot_key].append(sensor_data[plot_key])
         else:
-            sensor_data['od_trx'] = float('nan')
-            sensor_data['od_sct'] = float('nan')
-            sensor_data['od_ref'] = float('nan')
-            _plot_data['od_trx'].append(float('nan'))
-            _plot_data['od_sct'].append(float('nan'))
+            # No OD available, set all to NaN
+            for ch_name in od_channel_names:
+                plot_key = f"od_{ch_name.lower()}"
+                sensor_data[plot_key] = float('nan')
+                _plot_data[plot_key].append(float('nan'))
     
     # Add time to plot data
     _plot_data['time'].append(elapsed)
     
     # Write to CSV
     if hasattr(bioreactor, 'writer') and bioreactor.writer:
-        # Map to config labels if available
-        config = getattr(bioreactor, 'cfg', None)
+        csv_row = {'time': elapsed}
+        
+        # Add temperature with config label if available
         if config and hasattr(config, 'SENSOR_LABELS'):
-            csv_row = {
-                'time': elapsed,
-                config.SENSOR_LABELS.get('temperature', 'temperature_C'): sensor_data['temperature'],
-            }
-            # Add OD data using config labels
-            if 'od_trx' in sensor_data:
-                csv_row[config.SENSOR_LABELS.get('od_trx', 'OD_Trx_V')] = sensor_data['od_trx']
-            if 'od_sct' in sensor_data:
-                csv_row[config.SENSOR_LABELS.get('od_sct', 'OD_Sct_V')] = sensor_data['od_sct']
-            if 'od_ref' in sensor_data:
-                csv_row[config.SENSOR_LABELS.get('od_ref', 'OD_Ref_V')] = sensor_data['od_ref']
+            temp_label = config.SENSOR_LABELS.get('temperature', 'temperature_C')
+            csv_row[temp_label] = sensor_data['temperature']
         else:
-            csv_row = sensor_data
+            csv_row['temperature'] = sensor_data['temperature']
+        
+        # Add OD data dynamically using config labels or auto-generate
+        for ch_name in od_channel_names:
+            plot_key = f"od_{ch_name.lower()}"
+            if plot_key in sensor_data:
+                # Try to get label from SENSOR_LABELS first
+                if config and hasattr(config, 'SENSOR_LABELS'):
+                    # Try multiple possible label keys
+                    label = (config.SENSOR_LABELS.get(plot_key) or 
+                            config.SENSOR_LABELS.get(f"od_{ch_name}") or
+                            config.SENSOR_LABELS.get(f"od_{ch_name.lower()}") or
+                            config.SENSOR_LABELS.get(f"od_{ch_name.upper()}") or
+                            f"OD_{ch_name}_V")
+                else:
+                    # Auto-generate label
+                    label = f"OD_{ch_name}_V"
+                csv_row[label] = sensor_data[plot_key]
         
         try:
             # Only write fields that exist in fieldnames to avoid errors
@@ -176,28 +182,35 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
             ax1.plot(list(_plot_data['time']), list(_plot_data['temperature']), 'g-', linewidth=2, label='Temperature')
         ax1.legend()
         
-        # Right: OD voltages
+        # Right: OD voltages (dynamically plot all configured channels)
         ax2 = _plot_axes[1]
         ax2.clear()
         ax2.set_title('Optical Density Voltages')
         ax2.set_xlabel('Time (seconds)')
         ax2.set_ylabel('Voltage (V)')
         ax2.grid(True, alpha=0.3)
-        if len(_plot_data['od_trx']) > 0:
-            ax2.plot(list(_plot_data['time']), list(_plot_data['od_trx']), 'm-', linewidth=2, label='Trx')
-        if len(_plot_data['od_sct']) > 0:
-            ax2.plot(list(_plot_data['time']), list(_plot_data['od_sct']), 'c-', linewidth=2, label='Sct')
+        
+        # Plot colors for different channels
+        colors = ['m', 'c', 'b', 'r', 'g', 'y', 'k']
+        for idx, ch_name in enumerate(od_channel_names):
+            plot_key = f"od_{ch_name.lower()}"
+            if plot_key in _plot_data and len(_plot_data[plot_key]) > 0:
+                color = colors[idx % len(colors)]
+                ax2.plot(list(_plot_data['time']), list(_plot_data[plot_key]), 
+                        f'{color}-', linewidth=2, label=ch_name)
         ax2.legend()
         
         plt.tight_layout()
         plt.draw()
         plt.pause(0.01)  # Small pause to update display
     
-    bioreactor.logger.info(
-        f"Sensor readings - Temp: {sensor_data.get('temperature', 'N/A'):.2f}°C, "
-        f"OD Trx: {sensor_data.get('od_trx', 'N/A'):.4f}V, "
-        f"OD Sct: {sensor_data.get('od_sct', 'N/A'):.4f}V"
-    )
+    # Build log message dynamically
+    log_parts = [f"Temp: {sensor_data.get('temperature', 'N/A'):.2f}°C"]
+    for ch_name in od_channel_names:
+        plot_key = f"od_{ch_name.lower()}"
+        if plot_key in sensor_data:
+            log_parts.append(f"OD {ch_name}: {sensor_data.get(plot_key, 'N/A'):.4f}V")
+    bioreactor.logger.info(f"Sensor readings - {', '.join(log_parts)}")
     
     return sensor_data
 

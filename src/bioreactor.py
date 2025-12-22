@@ -68,8 +68,24 @@ class Bioreactor():
         self._stop_event = threading.Event()
 
         # Set up CSV writer for sensor data
-        # This can be customized based on your sensor configuration
-        if config and hasattr(config, 'SENSOR_LABELS'):
+        # Automatically populate OD channel labels from OD_ADC_CHANNELS if not in SENSOR_LABELS
+        if config:
+            # Ensure SENSOR_LABELS exists
+            if not hasattr(config, 'SENSOR_LABELS'):
+                config.SENSOR_LABELS = {}
+            
+            # Auto-populate OD channel labels from OD_ADC_CHANNELS
+            if hasattr(config, 'OD_ADC_CHANNELS'):
+                for ch_name in config.OD_ADC_CHANNELS.keys():
+                    # Check if label already exists (try various key formats)
+                    od_key = f"od_{ch_name.lower()}"
+                    if (od_key not in config.SENSOR_LABELS and 
+                        f"od_{ch_name}" not in config.SENSOR_LABELS and
+                        f"od_{ch_name.upper()}" not in config.SENSOR_LABELS):
+                        # Auto-generate label: OD_<ChannelName>_V
+                        config.SENSOR_LABELS[od_key] = f"OD_{ch_name}_V"
+            
+            # Build fieldnames from SENSOR_LABELS
             sensor_keys = list(config.SENSOR_LABELS.keys())
             fieldnames = ['time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]
         else:
