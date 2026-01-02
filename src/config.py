@@ -27,6 +27,7 @@ class Config:
         'stirrer': True,  # PWM stirrer driver
         'led': False,  # LED PWM control
         'optical_density': False,  # Optical density sensor (ADS1115)
+        'eyespy_adc': False,  # Eyespy ADC component (ADS1114, based on pioreactor)
     }
     
     # Sensor Labels for CSV output
@@ -56,3 +57,20 @@ class Config:
         'Ref': 'A1',
         '90': 'A2',
     }  # Dictionary mapping channel names to ADS1115 pins (A0-A3)
+    
+    # Eyespy ADC Configuration (ADS1114, based on pioreactor pattern)
+    # Supports multiple eyespy boards, each at a different I2C address
+    # Each eyespy board is a single-channel ADS1114 ADC
+    EYESPY_ADC: dict = {
+        'eyespy1': {
+            'i2c_address': 0x49,  # I2C address (default for eyespy/pd2)
+            'i2c_bus': 1,  # I2C bus number (typically 1 for /dev/i2c-1)
+            'gain': 1.0,  # PGA gain: 2/3, 1.0, 2.0, 4.0, 8.0, 16.0 (default: 1.0 = ±4.096 V)
+        },
+        # Add more eyespy boards as needed:
+        # 'eyespy2': {
+        #     'i2c_address': 0x48,  # Different I2C address
+        #     'i2c_bus': 1,
+        #     'gain': 1.0,
+        # },
+    }

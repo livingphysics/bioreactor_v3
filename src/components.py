@@ -274,6 +274,81 @@ def init_optical_density(bioreactor, config):
         return {'initialized': False, 'error': str(e)}
 
 
+def init_eyespy_adc(bioreactor, config):
+    """
+    Initialize eyespy ADC component (ADS1114 based, from pioreactor pattern).
+    
+    Supports multiple eyespy boards at different I2C addresses.
+    Each eyespy board is a single-channel ADS1114 ADC.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object with EYESPY_ADC configuration
+        
+    Returns:
+        dict: {'initialized': bool, 'eyespy_boards': dict of board configs}
+    """
+    try:
+        # Import the eyespy ADC function
+        import sys
+        import os
+        # Add hardware_testing to path if needed
+        hardware_testing_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'hardware_testing')
+        if hardware_testing_path not in sys.path:
+            sys.path.insert(0, hardware_testing_path)
+        
+        from eyespy_adc import read_eyespy_adc
+    except ImportError as import_error:
+        logger.error(f"Eyespy ADC dependencies missing: {import_error}")
+        return {'initialized': False, 'error': str(import_error)}
+    
+    try:
+        # Get eyespy ADC configuration from config
+        eyespy_config = getattr(config, 'EYESPY_ADC', {})
+        
+        if not eyespy_config:
+            logger.warning("No EYESPY_ADC configuration found, using defaults")
+            # Default: single eyespy board at address 0x49
+            eyespy_config = {
+                'eyespy1': {
+                    'i2c_address': 0x49,
+                    'i2c_bus': 1,
+                    'gain': 1.0,  # ±4.096 V range
+                }
+            }
+        
+        eyespy_boards = {}
+        
+        # Store configuration for each eyespy board
+        for board_name, board_cfg in eyespy_config.items():
+            i2c_address = board_cfg.get('i2c_address', 0x49)
+            i2c_bus = board_cfg.get('i2c_bus', 1)
+            gain = board_cfg.get('gain', 1.0)
+            
+            eyespy_boards[board_name] = {
+                'i2c_address': i2c_address,
+                'i2c_bus': i2c_bus,
+                'gain': gain,
+            }
+            logger.info(f"Eyespy ADC board {board_name} configured: address={hex(i2c_address)}, bus={i2c_bus}, gain={gain}")
+        
+        if not eyespy_boards:
+            error_msg = "No valid eyespy ADC boards configured"
+            logger.error(error_msg)
+            return {'initialized': False, 'error': error_msg}
+        
+        # Store on bioreactor instance
+        bioreactor.eyespy_boards = eyespy_boards
+        bioreactor._eyespy_read_func = read_eyespy_adc  # Store the read function
+        
+        logger.info(f"Eyespy ADC initialized with {len(eyespy_boards)} board(s)")
+        
+        return {'initialized': True, 'eyespy_boards': eyespy_boards}
+    except Exception as e:
+        logger.error(f"Eyespy ADC initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
 # Component registry - maps component names to initialization functions
 COMPONENT_REGISTRY = {
     'i2c': init_i2c,
@@ -282,5 +357,6 @@ COMPONENT_REGISTRY = {
     'stirrer': init_stirrer,
     'led': init_led,
     'optical_density': init_optical_density,
+    'eyespy_adc': init_eyespy_adc,
 }
 
