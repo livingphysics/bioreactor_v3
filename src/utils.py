@@ -292,6 +292,24 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                 plot_key = f"od_{ch_name.lower()}"
                 sensor_data[plot_key] = float('nan')
     
+    # Read eyespy ADC boards
+    if bioreactor.is_component_initialized('eyespy_adc'):
+        eyespy_readings = read_all_eyespy_boards(bioreactor)
+        if eyespy_readings:
+            for board_name, raw_value in eyespy_readings.items():
+                if raw_value is not None:
+                    # Store raw value
+                    sensor_data[f"eyespy_{board_name}_raw"] = raw_value
+                    # Also get voltage
+                    voltage = read_eyespy_voltage(bioreactor, board_name)
+                    if voltage is not None:
+                        sensor_data[f"eyespy_{board_name}_voltage"] = voltage
+                    else:
+                        sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
+                else:
+                    sensor_data[f"eyespy_{board_name}_raw"] = float('nan')
+                    sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
+    
     # Write to CSV
     if hasattr(bioreactor, 'writer') and bioreactor.writer:
         csv_row = {'time': elapsed}
@@ -320,6 +338,25 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     label = f"OD_{ch_name}_V"
                 csv_row[label] = sensor_data[plot_key]
         
+        # Add eyespy ADC data dynamically
+        if bioreactor.is_component_initialized('eyespy_adc') and hasattr(bioreactor, 'eyespy_boards'):
+            for board_name in bioreactor.eyespy_boards.keys():
+                raw_key = f"eyespy_{board_name}_raw"
+                voltage_key = f"eyespy_{board_name}_voltage"
+                
+                # Get labels from config or auto-generate
+                if config and hasattr(config, 'SENSOR_LABELS'):
+                    raw_label = config.SENSOR_LABELS.get(raw_key, f"Eyespy_{board_name}_raw")
+                    voltage_label = config.SENSOR_LABELS.get(voltage_key, f"Eyespy_{board_name}_V")
+                else:
+                    raw_label = f"Eyespy_{board_name}_raw"
+                    voltage_label = f"Eyespy_{board_name}_V"
+                
+                if raw_key in sensor_data:
+                    csv_row[raw_label] = sensor_data[raw_key]
+                if voltage_key in sensor_data:
+                    csv_row[voltage_label] = sensor_data[voltage_key]
+        
         try:
             # Only write fields that exist in fieldnames to avoid errors
             if hasattr(bioreactor, 'fieldnames'):
@@ -338,6 +375,16 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         plot_key = f"od_{ch_name.lower()}"
         if plot_key in sensor_data:
             log_parts.append(f"OD {ch_name}: {sensor_data.get(plot_key, 'N/A'):.4f}V")
+    
+    # Add eyespy readings to log
+    if bioreactor.is_component_initialized('eyespy_adc') and hasattr(bioreactor, 'eyespy_boards'):
+        for board_name in bioreactor.eyespy_boards.keys():
+            voltage_key = f"eyespy_{board_name}_voltage"
+            if voltage_key in sensor_data:
+                voltage = sensor_data[voltage_key]
+                if not np.isnan(voltage):
+                    log_parts.append(f"Eyespy {board_name}: {voltage:.4f}V")
+    
     bioreactor.logger.info(f"Sensor readings - {', '.join(log_parts)}")
     
     return sensor_data

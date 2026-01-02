@@ -91,6 +91,16 @@ class Bioreactor():
                         # Auto-generate label: OD_<ChannelName>_V
                         config.SENSOR_LABELS[od_key] = f"OD_{ch_name}_V"
             
+            # Auto-populate eyespy ADC labels from EYESPY_ADC
+            if hasattr(config, 'EYESPY_ADC'):
+                for board_name in config.EYESPY_ADC.keys():
+                    raw_key = f"eyespy_{board_name}_raw"
+                    voltage_key = f"eyespy_{board_name}_voltage"
+                    if raw_key not in config.SENSOR_LABELS:
+                        config.SENSOR_LABELS[raw_key] = f"Eyespy_{board_name}_raw"
+                    if voltage_key not in config.SENSOR_LABELS:
+                        config.SENSOR_LABELS[voltage_key] = f"Eyespy_{board_name}_V"
+            
             # Build fieldnames from SENSOR_LABELS
             sensor_keys = list(config.SENSOR_LABELS.keys())
             fieldnames = ['time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]
