@@ -31,6 +31,7 @@ config.INIT_COMPONENTS = {
     'stirrer': True,
     'led': True,  # Enable LED PWM control
     'optical_density': True,  # Enable optical density sensor (ADS1115)
+    'eyespy_adc': True,  # Enable eyespy ADC boards
 }
 
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
@@ -45,6 +46,11 @@ with Bioreactor(config) as reactor:
     if reactor.is_component_initialized('temp_sensor'):
         print("Temperature sensors are ready!")
         # Use sensors via reactor.temp_sensors array
+    
+    # Read all eyespy boards in a single call
+    if reactor.is_component_initialized('eyespy_adc'):
+        eyespy_readings = read_all_eyespy_boards(reactor)
+        print(f"Eyespy readings: {eyespy_readings}")
 
     # Start scheduled jobs
     # Format: (function, frequency_seconds, duration)
