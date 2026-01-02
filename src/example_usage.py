@@ -31,7 +31,7 @@ config.INIT_COMPONENTS = {
     'stirrer': True,
     'led': True,  # Enable LED PWM control
     'optical_density': True,  # Enable optical density sensor (ADS1115)
-    'eyespy_adc': True,  # Enable eyespy ADC boards
+    'eyespy_adc': False,  # Enable eyespy ADC boards
 }
 
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
