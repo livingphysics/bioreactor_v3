@@ -68,9 +68,9 @@ class Config:
             'gain': 1.0,  # PGA gain: 2/3, 1.0, 2.0, 4.0, 8.0, 16.0 (default: 1.0 = ±4.096 V)
         },
         # Add more eyespy boards as needed:
-        # 'eyespy2': {
-        #     'i2c_address': 0x48,  # Different I2C address
-        #     'i2c_bus': 1,
-        #     'gain': 1.0,
-        # },
+        'eyespy2': {
+            'i2c_address': 0x4a,  # Different I2C address
+            'i2c_bus': 1,
+            'gain': 1.0,
+        },
     }
