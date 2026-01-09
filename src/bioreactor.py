@@ -74,14 +74,19 @@ class Bioreactor():
         self._stop_event = threading.Event()
 
         # Set up CSV writer for sensor data
-        # Automatically populate OD channel labels from OD_ADC_CHANNELS if not in SENSOR_LABELS
+        # Automatically populate labels only for components that are enabled in INIT_COMPONENTS
         if config:
             # Ensure SENSOR_LABELS exists
             if not hasattr(config, 'SENSOR_LABELS'):
                 config.SENSOR_LABELS = {}
             
-            # Auto-populate OD channel labels from OD_ADC_CHANNELS
-            if hasattr(config, 'OD_ADC_CHANNELS'):
+            # Get enabled components
+            init_components = getattr(config, 'INIT_COMPONENTS', {})
+            od_enabled = init_components.get('optical_density', False)
+            eyespy_enabled = init_components.get('eyespy_adc', False)
+            
+            # Auto-populate OD channel labels from OD_ADC_CHANNELS only if optical_density is enabled
+            if od_enabled and hasattr(config, 'OD_ADC_CHANNELS'):
                 for ch_name in config.OD_ADC_CHANNELS.keys():
                     # Check if label already exists (try various key formats)
                     od_key = f"od_{ch_name.lower()}"
@@ -90,6 +95,16 @@ class Bioreactor():
                         f"od_{ch_name.upper()}" not in config.SENSOR_LABELS):
                         # Auto-generate label: OD_<ChannelName>_V
                         config.SENSOR_LABELS[od_key] = f"OD_{ch_name}_V"
+            
+            # Auto-populate eyespy ADC labels from EYESPY_ADC only if eyespy_adc is enabled
+            if eyespy_enabled and hasattr(config, 'EYESPY_ADC'):
+                for board_name in config.EYESPY_ADC.keys():
+                    raw_key = f"eyespy_{board_name}_raw"
+                    voltage_key = f"eyespy_{board_name}_voltage"
+                    if raw_key not in config.SENSOR_LABELS:
+                        config.SENSOR_LABELS[raw_key] = f"Eyespy_{board_name}_raw"
+                    if voltage_key not in config.SENSOR_LABELS:
+                        config.SENSOR_LABELS[voltage_key] = f"Eyespy_{board_name}_V"
             
             # Build fieldnames from SENSOR_LABELS
             sensor_keys = list(config.SENSOR_LABELS.keys())

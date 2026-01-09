@@ -226,10 +226,11 @@ def set_led(bioreactor, power: float) -> bool:
 def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_name: str = 'Trx') -> Optional[Union[float, Dict[str, float]]]:
     """
     Measure optical density by turning LED on, taking readings, and averaging.
+    Also reads eyespy ADC boards if initialized.
     
     This function:
     1. Turns LED on at the given power for 1 second
-    2. Starts taking readings for the specified duration
+    2. Starts taking readings for the specified duration (OD channels and eyespy boards)
     3. Averages the readings
     4. Returns the averaged voltage value(s)
     
@@ -242,6 +243,7 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
     Returns:
         float: Averaged voltage reading for single channel, or None if error
         dict: Dictionary mapping channel names to averaged voltages when channel_name='all', or None if error
+              Includes both OD channels and eyespy boards (e.g., 'Trx', 'eyespy1', 'eyespy2')
     """
     import time
     
@@ -249,18 +251,35 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
         bioreactor.logger.error("LED driver not initialized")
         return None
     
-    if not bioreactor.is_component_initialized('optical_density'):
-        bioreactor.logger.error("Optical density sensor not initialized")
+    od_initialized = bioreactor.is_component_initialized('optical_density')
+    eyespy_initialized = bioreactor.is_component_initialized('eyespy_adc')
+    
+    if not od_initialized and not eyespy_initialized:
+        bioreactor.logger.error("Neither optical density sensor nor eyespy ADC initialized")
         return None
     
-    # Determine which channels to measure
-    if channel_name.lower() == 'all':
-        if not hasattr(bioreactor, 'od_channels') or not bioreactor.od_channels:
-            bioreactor.logger.error("No OD channels available")
-            return None
-        channels_to_measure = list(bioreactor.od_channels.keys())
-    else:
-        channels_to_measure = [channel_name]
+    # Warn if both are initialized
+    if od_initialized and eyespy_initialized:
+        bioreactor.logger.warning(
+            "Both optical_density and eyespy_adc are initialized. "
+            "Reading both while LED is on - ensure they don't interfere with each other."
+        )
+    
+    # Determine which OD channels to measure
+    channels_to_measure = []
+    if od_initialized:
+        if channel_name.lower() == 'all':
+            if not hasattr(bioreactor, 'od_channels') or not bioreactor.od_channels:
+                bioreactor.logger.error("No OD channels available")
+                return None
+            channels_to_measure = list(bioreactor.od_channels.keys())
+        else:
+            channels_to_measure = [channel_name]
+    
+    # Get eyespy board names if initialized
+    eyespy_boards = []
+    if eyespy_initialized and hasattr(bioreactor, 'eyespy_boards'):
+        eyespy_boards = list(bioreactor.eyespy_boards.keys())
     
     try:
         # Turn LED on at specified power
@@ -272,26 +291,35 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
         time.sleep(1.0)
         
         # Collect readings for the specified duration
-        # Use dictionary to store readings for each channel
+        # Use dictionary to store readings for each channel/board
         all_readings = {ch: [] for ch in channels_to_measure}
+        eyespy_readings = {board: [] for board in eyespy_boards}
         start_time = time.time()
         sample_interval = 0.01  # Sample every 10ms for smooth averaging
         
         while (time.time() - start_time) < averaging_duration:
+            # Read OD channels
             for ch in channels_to_measure:
                 voltage = read_voltage(bioreactor, ch)
                 if voltage is not None:
                     all_readings[ch].append(voltage)
+            
+            # Read eyespy boards
+            for board_name in eyespy_boards:
+                voltage = read_eyespy_voltage(bioreactor, board_name)
+                if voltage is not None:
+                    eyespy_readings[board_name].append(voltage)
+            
             time.sleep(sample_interval)
         
         # Turn LED off
         bioreactor.led_driver.off()
         
-        # Calculate averages for each channel
+        # Calculate averages for OD channels
         results = {}
         for ch in channels_to_measure:
             if not all_readings[ch]:
-                bioreactor.logger.warning(f"No valid readings collected for channel {ch}")
+                bioreactor.logger.warning(f"No valid readings collected for OD channel {ch}")
                 results[ch] = None
             else:
                 avg_voltage = sum(all_readings[ch]) / len(all_readings[ch])
@@ -302,19 +330,35 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
                     f"channel {ch}, avg voltage: {avg_voltage:.4f}V"
                 )
         
+        # Calculate averages for eyespy boards
+        for board_name in eyespy_boards:
+            if not eyespy_readings[board_name]:
+                bioreactor.logger.warning(f"No valid readings collected for eyespy board {board_name}")
+                results[board_name] = None
+            else:
+                avg_voltage = sum(eyespy_readings[board_name]) / len(eyespy_readings[board_name])
+                results[board_name] = avg_voltage
+                bioreactor.logger.info(
+                    f"Eyespy measurement complete: {len(eyespy_readings[board_name])} readings averaged, "
+                    f"LED power {led_power}%, duration {averaging_duration}s, "
+                    f"board {board_name}, avg voltage: {avg_voltage:.4f}V"
+                )
+        
         # Return single value if single channel, dict if all channels
-        if channel_name.lower() == 'all':
-            # Filter out None values if any channel failed
+        if channel_name.lower() == 'all' or eyespy_boards:
+            # Return dict with all results (OD + eyespy)
             valid_results = {k: v for k, v in results.items() if v is not None}
             if not valid_results:
-                bioreactor.logger.warning("No valid readings collected for any channel")
+                bioreactor.logger.warning("No valid readings collected for any channel or board")
                 return None
             return valid_results
         else:
             # Single channel mode - return float or None
-            if results[channel_name] is None:
-                return None
-            return results[channel_name]
+            if channel_name in results:
+                if results[channel_name] is None:
+                    return None
+                return results[channel_name]
+            return None
         
     except Exception as e:
         bioreactor.logger.error(f"Error during OD measurement: {e}")
@@ -440,3 +484,145 @@ def stop_stirrer(bioreactor) -> None:
         driver.stop()
     except Exception as e:
         bioreactor.logger.error(f"Failed to stop stirrer: {e}")
+
+
+def read_eyespy_adc(bioreactor, board_name: str = None) -> Optional[int]:
+    """
+    Read raw ADC value from an eyespy board (ADS1114).
+    
+    Args:
+        bioreactor: Bioreactor instance
+        board_name: Name of the eyespy board (e.g., 'eyespy1'). 
+                   If None and only one board is configured, uses that board.
+        
+    Returns:
+        int: Raw 16-bit signed integer ADC reading (-32768 to 32767), or None if error
+    """
+    if not bioreactor.is_component_initialized('eyespy_adc'):
+        bioreactor.logger.warning("Eyespy ADC not initialized")
+        return None
+    
+    if not hasattr(bioreactor, 'eyespy_boards') or not bioreactor.eyespy_boards:
+        bioreactor.logger.warning("Eyespy ADC boards not available")
+        return None
+    
+    # Determine which board to use
+    if board_name is None:
+        if len(bioreactor.eyespy_boards) == 1:
+            board_name = list(bioreactor.eyespy_boards.keys())[0]
+        else:
+            bioreactor.logger.warning(
+                f"Multiple eyespy boards configured. Specify board_name. Available: {list(bioreactor.eyespy_boards.keys())}"
+            )
+            return None
+    
+    if board_name not in bioreactor.eyespy_boards:
+        bioreactor.logger.warning(
+            f"Eyespy board '{board_name}' not found. Available: {list(bioreactor.eyespy_boards.keys())}"
+        )
+        return None
+    
+    board_cfg = bioreactor.eyespy_boards[board_name]
+    read_func = getattr(bioreactor, '_eyespy_read_func', None)
+    
+    if not read_func:
+        bioreactor.logger.error("Eyespy read function not available")
+        return None
+    
+    try:
+        reading = read_func(
+            i2c_address=board_cfg['i2c_address'],
+            i2c_bus=board_cfg['i2c_bus'],
+            gain=board_cfg['gain']
+        )
+        return reading
+    except Exception as e:
+        bioreactor.logger.error(f"Error reading eyespy ADC board {board_name}: {e}")
+        return None
+
+
+def read_eyespy_voltage(bioreactor, board_name: str = None) -> Optional[float]:
+    """
+    Read voltage from an eyespy board (ADS1114), converting raw ADC value to voltage.
+    
+    The voltage conversion depends on the gain setting:
+    - gain 2/3: ±6.144 V -> 1 LSB = 0.1875 mV
+    - gain 1.0: ±4.096 V -> 1 LSB = 0.125 mV
+    - gain 2.0: ±2.048 V -> 1 LSB = 0.0625 mV
+    - gain 4.0: ±1.024 V -> 1 LSB = 0.03125 mV
+    - gain 8.0: ±0.512 V -> 1 LSB = 0.015625 mV
+    - gain 16.0: ±0.256 V -> 1 LSB = 0.0078125 mV
+    
+    Args:
+        bioreactor: Bioreactor instance
+        board_name: Name of the eyespy board (e.g., 'eyespy1'). 
+                   If None and only one board is configured, uses that board.
+        
+    Returns:
+        float: Voltage reading in volts, or None if error
+    """
+    raw_value = read_eyespy_adc(bioreactor, board_name)
+    if raw_value is None:
+        return None
+    
+    if not hasattr(bioreactor, 'eyespy_boards'):
+        return None
+    
+    # Determine board config for gain
+    if board_name is None:
+        if len(bioreactor.eyespy_boards) == 1:
+            board_name = list(bioreactor.eyespy_boards.keys())[0]
+        else:
+            return None
+    
+    if board_name not in bioreactor.eyespy_boards:
+        return None
+    
+    board_cfg = bioreactor.eyespy_boards[board_name]
+    gain = board_cfg['gain']
+    
+    # Full-scale ranges for different gains (from ADS1114 datasheet)
+    fsr_map = {
+        2/3: 6.144,
+        1.0: 4.096,
+        2.0: 2.048,
+        4.0: 1.024,
+        8.0: 0.512,
+        16.0: 0.256,
+    }
+    
+    fsr = fsr_map.get(gain, 4.096)  # Default to 4.096 if gain not found
+    
+    # Convert raw value to voltage: voltage = (raw_value / 32767) * FSR
+    voltage = (raw_value / 32767.0) * fsr
+    
+    return voltage
+
+
+def read_all_eyespy_boards(bioreactor) -> Optional[Dict[str, int]]:
+    """
+    Read raw ADC values from all configured eyespy boards.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        
+    Returns:
+        dict: Dictionary mapping board names to raw ADC readings, or None if error
+    """
+    if not bioreactor.is_component_initialized('eyespy_adc'):
+        bioreactor.logger.warning("Eyespy ADC not initialized")
+        return None
+    
+    if not hasattr(bioreactor, 'eyespy_boards') or not bioreactor.eyespy_boards:
+        bioreactor.logger.warning("Eyespy ADC boards not available")
+        return None
+    
+    readings = {}
+    for board_name in bioreactor.eyespy_boards.keys():
+        reading = read_eyespy_adc(bioreactor, board_name)
+        if reading is not None:
+            readings[board_name] = reading
+        else:
+            readings[board_name] = None
+    
+    return readings
