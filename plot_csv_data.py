@@ -225,9 +225,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         print(f"Fetching data from {len(servers)} remote server(s)...")
     else:
         use_remote = False
-    if not os.path.exists(csv_file_path):
-        print(f"Error: CSV file not found: {csv_file_path}")
-        return
+        if csv_file_path is None or not os.path.exists(csv_file_path):
+            print(f"Error: CSV file not found: {csv_file_path}")
+            return
     
     # Global storage for plot data
     last_row_count = 0
@@ -369,7 +369,14 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             rows = (num_groups + 1) // 2
             cols = 2 if num_groups > 1 else 1
             fig, axes = plt.subplots(rows, cols, figsize=(14, 4 * rows))
-            fig.suptitle(f'Live Data from {os.path.basename(csv_file_path)}', fontsize=14)
+            
+            # Set plot title based on mode
+            if use_remote:
+                server_names = ', '.join([s['label'] for s in getattr(plot_config, 'SSH_SERVERS', [])])
+                fig.suptitle(f'Live Data from Remote Servers ({server_names})', fontsize=14)
+            else:
+                fig.suptitle(f'Live Data from {os.path.basename(csv_file_path)}', fontsize=14)
+            
             plt.ion()
             
             # Flatten axes if needed
