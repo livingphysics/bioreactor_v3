@@ -256,8 +256,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     else:
         use_remote = False
         if csv_file_path is None or not os.path.exists(csv_file_path):
-        print(f"Error: CSV file not found: {csv_file_path}")
-        return
+            print(f"Error: CSV file not found: {csv_file_path}")
+            return
     
     # Global storage for plot data
     last_row_count = 0
@@ -312,37 +312,37 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             return data, headers
         else:
             # Read from local file
-        data = {}
-        headers = []
+            data = {}
+            headers = []
         
-        try:
-            with open(csv_file_path, 'r', newline='') as f:
-                reader = csv.DictReader(f)
-                headers = reader.fieldnames or []
-                
-                rows = list(reader)
-                if len(rows) == last_row_count:
-                    return None  # No new data
-                
-                last_row_count = len(rows)
-                
-                # Initialize data structure
-                for header in headers:
-                    data[header] = []
-                
-                # Read all rows
-                for row in rows:
+            try:
+                with open(csv_file_path, 'r', newline='') as f:
+                    reader = csv.DictReader(f)
+                    headers = reader.fieldnames or []
+                    
+                    rows = list(reader)
+                    if len(rows) == last_row_count:
+                        return None  # No new data
+                    
+                    last_row_count = len(rows)
+                    
+                    # Initialize data structure
                     for header in headers:
-                        try:
-                            value = float(row[header]) if row[header] else float('nan')
-                            data[header].append(value)
-                        except (ValueError, KeyError):
-                            data[header].append(float('nan'))
-                
-                return data, headers
-        except Exception as e:
-            print(f"Error reading CSV file: {e}")
-            return None
+                        data[header] = []
+                    
+                    # Read all rows
+                    for row in rows:
+                        for header in headers:
+                            try:
+                                value = float(row[header]) if row[header] else float('nan')
+                                data[header].append(value)
+                            except (ValueError, KeyError):
+                                data[header].append(float('nan'))
+                    
+                    return data, headers
+            except Exception as e:
+                print(f"Error reading CSV file: {e}")
+                return None
     
     def update_plot():
         """Update the plot with latest data."""
@@ -405,7 +405,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 server_names = ', '.join([s['label'] for s in getattr(plot_config, 'SSH_SERVERS', [])])
                 fig.suptitle(f'Live Data from Remote Servers ({server_names})', fontsize=14)
             else:
-            fig.suptitle(f'Live Data from {os.path.basename(csv_file_path)}', fontsize=14)
+                fig.suptitle(f'Live Data from {os.path.basename(csv_file_path)}', fontsize=14)
             
             plt.ion()
             
@@ -473,18 +473,18 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                                label=label, markersize=4 if marker else None)
             else:
                 # Original behavior: plot all columns
-            for col_idx, col in enumerate(columns):
-                if col not in data:
-                    continue
-                values = data[col]
-                if not values:
-                    continue
+                for col_idx, col in enumerate(columns):
+                    if col not in data:
+                        continue
+                    values = data[col]
+                    if not values:
+                        continue
                 
-                color = colors[col_idx % len(colors)]
-                marker = markers[col_idx % len(markers)] if len(columns) > 1 else None
-                style = f'{color[0]}{marker}-' if marker else color
+                    color = colors[col_idx % len(colors)]
+                    marker = markers[col_idx % len(markers)] if len(columns) > 1 else None
+                    style = f'{color[0]}{marker}-' if marker else color
                 
-                ax.plot(times_scaled, values, style, linewidth=2, 
+                    ax.plot(times_scaled, values, style, linewidth=2, 
                        label=col, markersize=4 if marker else None)
             
             # Show legend if we have multiple series
