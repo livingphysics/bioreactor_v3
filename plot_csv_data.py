@@ -257,7 +257,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         use_remote = False
         if csv_file_path is None or not os.path.exists(csv_file_path):
             print(f"Error: CSV file not found: {csv_file_path}")
-            return
+        return
     
     # Global storage for plot data
     last_row_count = 0
@@ -314,7 +314,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             # Read from local file
             data = {}
             headers = []
-        
+            
             try:
                 with open(csv_file_path, 'r', newline='') as f:
                     reader = csv.DictReader(f)
@@ -389,16 +389,27 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         
         xlabel = f"Time ({time_unit.lower()})"
         
+        # Determine sources (bioreactors) - if using remote, group by source; otherwise single source
+        if 'source' in data and use_remote:
+            sources = sorted(set(data['source']))
+        else:
+            sources = ['Local']  # Single source for local files
+        
+        # Get data type groups (excluding Time)
+        data_groups = {k: v for k, v in groups.items() if k != 'Time'}
+        num_groups = len(data_groups)
+        
+        if num_groups == 0:
+            return
+        
         # Create or update figure
+        # Layout: Each bioreactor (source) gets a row, each row has subplots for each data type
         if fig is None:
-            num_groups = len([g for g in groups.keys() if g != 'Time'])
-            if num_groups == 0:
-                return
+            num_sources = len(sources)
+            num_cols = num_groups  # One column per data type
+            num_rows = num_sources  # One row per bioreactor
             
-            # Arrange subplots (2 columns, as many rows as needed)
-            rows = (num_groups + 1) // 2
-            cols = 2 if num_groups > 1 else 1
-            fig, axes = plt.subplots(rows, cols, figsize=(14, 4 * rows))
+            fig, axes = plt.subplots(num_rows, num_cols, figsize=(14, 4 * num_rows))
             
             # Set plot title based on mode
             if use_remote:
@@ -410,91 +421,81 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             plt.ion()
             
             # Flatten axes if needed
-            if num_groups == 1:
+            if num_rows == 1 and num_cols == 1:
+                axes = [[axes]]
+            elif num_rows == 1:
                 axes = [axes]
-            elif rows == 1:
-                axes = list(axes)
+            elif num_cols == 1:
+                axes = [[ax] for ax in axes]
             else:
-                axes = axes.flatten()
+                axes = axes.reshape(num_rows, num_cols)
             
             # Show the figure window
             plt.show(block=False)
             plt.pause(0.1)  # Give matplotlib time to display the window
         
-        # Plot each group
-        ax_idx = 0
+        # Plot each bioreactor (source) in its own row
         colors = ['b-', 'r-', 'g-', 'm-', 'c-', 'y-', 'k-']
         markers = ['o', 's', '^', 'd', 'v', 'x']
         
-        for group_name, columns in groups.items():
-            if group_name == 'Time':
-                continue
-            
-            if ax_idx >= len(axes):
-                break
-            
-            ax = axes[ax_idx]
-            ax.clear()
-            ax.set_title(group_name)
-            ax.set_xlabel(xlabel)
-            ax.grid(True, alpha=0.3)
-            
-            # Determine ylabel based on group
-            if group_name == 'OD':
-                ax.set_ylabel('Voltage (V)')  # OD and Eyespy both use this
-            elif group_name == 'Temperature':
-                ax.set_ylabel('Temperature (°C)')
-            
-            # Plot each column in the group
-            # If we have a 'source' column, plot each source separately
+        # Get sorted list of data groups for consistent column ordering
+        group_names = sorted([g for g in data_groups.keys()])
+        
+        for source_idx, source in enumerate(sources):
+            # Filter data for this source
             if 'source' in data and use_remote:
-                # Group by source and plot separately
-                sources = set(data['source'])
-                for source_idx, source in enumerate(sorted(sources)):
-                    # Filter data for this source
-                    source_indices = [i for i, s in enumerate(data['source']) if s == source]
-                    source_times = [times_scaled[i] for i in source_indices]
-                    
-                    for col_idx, col in enumerate(columns):
-                        if col not in data:
-                            continue
-                        source_values = [data[col][i] for i in source_indices]
-                        if not source_values:
-                            continue
-                        
-                        # Use different colors/markers for each source+column combination
-                        style_idx = source_idx * len(columns) + col_idx
-                        color = colors[style_idx % len(colors)]
-                        marker = markers[style_idx % len(markers)] if len(sources) > 1 or len(columns) > 1 else None
-                        style = f'{color[0]}{marker}-' if marker else color
-                        
-                        label = f"{source}: {col}" if len(sources) > 1 or len(columns) > 1 else col
-                        ax.plot(source_times, source_values, style, linewidth=2, 
-                               label=label, markersize=4 if marker else None)
+                source_indices = [i for i, s in enumerate(data['source']) if s == source]
+                source_times = [times_scaled[i] for i in source_indices]
             else:
-                # Original behavior: plot all columns
+                source_indices = list(range(len(times_scaled)))
+                source_times = times_scaled
+            
+            # Plot each data type group in a column for this source row
+            for group_idx, group_name in enumerate(group_names):
+                columns = data_groups[group_name]
+                
+                # Get the axis for this source row and group column
+                if num_rows == 1:
+                    ax = axes[group_idx] if isinstance(axes, list) else axes
+                else:
+                    ax = axes[source_idx][group_idx]
+                
+                ax.clear()
+                
+                # Set title: source name and data type
+                if num_sources > 1:
+                    ax.set_title(f'{source} - {group_name}')
+                else:
+                    ax.set_title(group_name)
+                
+                ax.set_xlabel(xlabel)
+                ax.grid(True, alpha=0.3)
+                
+                # Determine ylabel based on group
+                if group_name == 'OD':
+                    ax.set_ylabel('Voltage (V)')  # OD and Eyespy both use this
+                elif group_name == 'Temperature':
+                    ax.set_ylabel('Temperature (°C)')
+                
+                # Plot each column in the group for this source
                 for col_idx, col in enumerate(columns):
                     if col not in data:
                         continue
-                    values = data[col]
-                    if not values:
+                    source_values = [data[col][i] for i in source_indices]
+                    if not source_values:
                         continue
-                
+                    
                     color = colors[col_idx % len(colors)]
                     marker = markers[col_idx % len(markers)] if len(columns) > 1 else None
                     style = f'{color[0]}{marker}-' if marker else color
+                    
+                    label = col
+                    ax.plot(source_times, source_values, style, linewidth=2, 
+                           label=label, markersize=4 if marker else None)
                 
-                    ax.plot(times_scaled, values, style, linewidth=2, 
-                       label=col, markersize=4 if marker else None)
-            
-            # Show legend if we have multiple series
-            if (use_remote and 'source' in data and len(set(data['source'])) > 1) or len(columns) > 1:
-                ax.legend(fontsize=9)
-            ax_idx += 1
-        
-        # Hide unused subplots
-        for i in range(ax_idx, len(axes)):
-            axes[i].set_visible(False)
+                # Show legend if we have multiple columns
+                if len(columns) > 1:
+                    ax.legend(fontsize=9)
         
         plt.tight_layout()
         plt.draw()
