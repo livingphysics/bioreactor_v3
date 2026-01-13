@@ -372,10 +372,17 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     raw_label = f"Eyespy_{board_name}_raw"
                     voltage_label = f"Eyespy_{board_name}_V"
                 
+                # Write raw value if available
                 if raw_key in sensor_data:
                     csv_row[raw_label] = sensor_data[raw_key]
+                
+                # Write voltage value - this should be the averaged voltage from measure_od (with LED on)
                 if voltage_key in sensor_data:
-                    csv_row[voltage_label] = sensor_data[voltage_key]
+                    voltage_value = sensor_data[voltage_key]
+                    csv_row[voltage_label] = voltage_value
+                    # Debug: verify we're writing the correct averaged value
+                    if not np.isnan(voltage_value):
+                        bioreactor.logger.debug(f"Writing eyespy {board_name} voltage to CSV: {voltage_value:.4f}V (label: {voltage_label})")
         
         try:
             # Only write fields that exist in fieldnames to avoid errors
