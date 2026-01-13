@@ -30,13 +30,12 @@ config.INIT_COMPONENTS = {
     'peltier_driver': True,
     'stirrer': True,
     'led': True,  # Enable LED PWM control
-    'optical_density': True,  # Enable optical density sensor (ADS1115)
-    'eyespy_adc': False,  # Enable eyespy ADC boards
+    'optical_density': False,  # Enable optical density sensor (ADS1115)
+    'eyespy_adc': True,  # Enable eyespy ADC boards
 }
 
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
 config.LOG_FILE = 'bioreactor.log'  # Also log to file
-# Set LOG_TO_TERMINAL = False to only log to file
 
 config.USE_TIMESTAMPED_FILENAME: bool = False 
 
