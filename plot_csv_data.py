@@ -37,6 +37,9 @@ import tempfile
 import shutil
 import subprocess
 import socket
+import queue
+import matplotlib
+matplotlib.use('TkAgg')  # Use TkAgg backend explicitly
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -288,6 +291,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     fig = None
     axes = None
     cache_dir = getattr(plot_config, 'CACHE_DIR', '/tmp/plot_csv_cache') if use_remote else None
+    update_queue = queue.Queue()  # Queue for thread-safe updates
+    update_flag = threading.Event()  # Flag to signal updates from background thread
     
     def group_columns(headers):
         """Group column headers by type."""
@@ -368,15 +373,16 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 print(f"Error reading CSV file: {e}")
                 return None
     
-    def update_plot():
-        """Update the plot with latest data."""
+    def update_plot(data=None, headers=None):
+        """Update the plot with latest data. Must be called from main thread."""
         nonlocal fig, axes
         
-        result = read_csv_data()
-        if result is None:
-            return
-        
-        data, headers = result
+        # If data/headers not provided, read them (for initial call)
+        if data is None or headers is None:
+            result = read_csv_data()
+            if result is None:
+                return
+            data, headers = result
         
         # Group columns
         groups = group_columns(headers)
@@ -426,10 +432,12 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         if num_groups == 0:
             return
         
+        # Calculate number of sources (needed for both figure creation and plotting)
+        num_sources = len(sources)
+        
         # Create or update figure
         # Layout: Each bioreactor (source) gets a row, each row has subplots for each data type
         if fig is None:
-            num_sources = len(sources)
             num_cols = num_groups  # One column per data type
             num_rows = num_sources  # One row per bioreactor
             
@@ -542,12 +550,18 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         plt.pause(0.1)  # Increased pause time to ensure display updates
     
     def update_loop():
-        """Continuously update the plot."""
+        """Continuously read data and signal main thread to update plot."""
         while True:
             try:
-                update_plot()
+                # Read data in background thread (this is safe)
+                result = read_csv_data()
+                if result is not None:
+                    # Put data in queue for main thread to process
+                    update_queue.put(result)
+                    update_flag.set()  # Signal main thread
                 time.sleep(update_interval)
             except KeyboardInterrupt:
+                update_queue.put(None)  # Signal shutdown
                 break
             except Exception as e:
                 print(f"Error in update loop: {e}")
@@ -563,17 +577,33 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     
     print("Plot window opened. Press Ctrl+C to stop.")
     
-    # Start update thread
+    # Start update thread (reads data in background)
     update_thread = threading.Thread(target=update_loop, daemon=True)
     update_thread.start()
     
-    # Keep main thread alive and process GUI events
+    # Main thread: process GUI events and handle plot updates
     try:
         while True:
-            plt.pause(0.1)  # Process GUI events
-            time.sleep(0.5)
+            # Check for updates from background thread
+            if update_flag.is_set():
+                try:
+                    # Get data from queue (non-blocking)
+                    result = update_queue.get_nowait()
+                    if result is None:  # Shutdown signal
+                        break
+                    data, headers = result
+                    # Update plot on main thread (this is safe)
+                    update_plot(data, headers)
+                    update_flag.clear()
+                except queue.Empty:
+                    pass
+            
+            # Process GUI events (must be on main thread)
+            plt.pause(0.1)
+            time.sleep(0.1)  # Small sleep to prevent busy loop
     except KeyboardInterrupt:
         print("\nPlotting stopped by user")
+    finally:
         if fig:
             plt.close(fig)
 
