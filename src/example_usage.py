@@ -52,6 +52,17 @@ with Bioreactor(config) as reactor:
         eyespy_readings = read_all_eyespy_boards(reactor)
         print(f"Eyespy readings: {eyespy_readings}")
 
+    # Pre-job initialization check: ring light test
+    if reactor.is_component_initialized('ring_light') and hasattr(reactor, 'ring_light_driver'):
+        try:
+            reactor.logger.info("Ring light initialization check: turning red for 2 seconds")
+            reactor.ring_light_driver.set_color((255, 0, 0))  # Red
+            time.sleep(2.0)
+            reactor.ring_light_driver.off()
+            reactor.logger.info("Ring light initialization check complete")
+        except Exception as e:
+            reactor.logger.error(f"Ring light initialization check failed: {e}")
+
     # Start scheduled jobs
     # Format: (function, frequency_seconds, duration)
     # frequency: time between calls in seconds, or True for continuous
