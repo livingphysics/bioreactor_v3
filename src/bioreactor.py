@@ -278,6 +278,14 @@ class Bioreactor():
             except Exception as e:
                 self.logger.error(f"Failed to stop stirrer driver: {e}")
 
+        # Turn off ring light if active
+        ring_light_driver = getattr(self, 'ring_light_driver', None)
+        if ring_light_driver:
+            try:
+                ring_light_driver.off()
+            except Exception as e:
+                self.logger.error(f"Failed to turn off ring light: {e}")
+
         self.logger.info("Bioreactor cleanup complete.")
 
     def __enter__(self):

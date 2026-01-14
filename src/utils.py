@@ -568,3 +568,95 @@ def temperature_pid_controller(
             f"setpoint={setpoint:.2f}°C, current_temp={current_temp}"
         )
 
+
+def ring_light_cycle(
+    bioreactor,
+    color: tuple = (50, 50, 50),
+    on_time: float = 60.0,
+    off_time: float = 60.0,
+    elapsed: Optional[float] = None
+) -> None:
+    """
+    Cycle ring light on and off in a loop.
+    
+    This function starts by turning the ring light on at a specified color,
+    then alternates between on and off for specified durations, repeating continuously.
+    Starts with ring light ON first.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        color: RGB tuple (r, g, b) with values 0-255 (default: (50, 50, 50))
+        on_time: Duration in seconds to keep ring light on (default: 60.0)
+        off_time: Duration in seconds to keep ring light off (default: 60.0)
+        elapsed: Elapsed time since start (s). Used internally for timing.
+        
+    Note:
+        State (_ring_light_state, _ring_light_last_switch_time) is stored on bioreactor instance.
+        The function automatically initializes state on first call, starting with ring light ON.
+        
+    Example usage as a job:
+        from functools import partial
+        from src.utils import ring_light_cycle
+        
+        # Create a partial function with custom color and timing
+        ring_light_job = partial(ring_light_cycle, color=(100, 100, 100), on_time=30.0, off_time=30.0)
+        
+        # Add to jobs list - call frequently (every 1 second) to check timing
+        jobs = [
+            (ring_light_job, 1, True),  # Check every 1 second
+        ]
+        reactor.run(jobs)
+    """
+    from .io import set_ring_light, turn_off_ring_light
+    
+    if not bioreactor.is_component_initialized('ring_light'):
+        bioreactor.logger.warning("Ring light not initialized; skipping cycle")
+        return
+    
+    # Initialize state if not present - start with ring light ON
+    if not hasattr(bioreactor, '_ring_light_state'):
+        bioreactor._ring_light_state = 'on'  # Start with ring light on
+        bioreactor._ring_light_last_switch_time = None
+        # Turn ring light on immediately on first call
+        if set_ring_light(bioreactor, color):
+            bioreactor.logger.info(
+                f"Ring light cycle started: turned ON with color={color}, will stay on for {on_time}s"
+            )
+    
+    # Get current time
+    if elapsed is None:
+        if not hasattr(bioreactor, '_ring_light_start_time'):
+            bioreactor._ring_light_start_time = time.time()
+        current_time = time.time() - bioreactor._ring_light_start_time
+    else:
+        current_time = elapsed
+    
+    # Initialize last switch time on first call
+    if bioreactor._ring_light_last_switch_time is None:
+        bioreactor._ring_light_last_switch_time = current_time
+    
+    # Calculate time since last state switch
+    time_since_switch = current_time - bioreactor._ring_light_last_switch_time
+    
+    # Determine if we need to switch state
+    if bioreactor._ring_light_state == 'on':
+        # Currently on - check if we should turn off
+        if time_since_switch >= on_time:
+            # Turn ring light off
+            turn_off_ring_light(bioreactor)
+            bioreactor._ring_light_state = 'off'
+            bioreactor._ring_light_last_switch_time = current_time
+            bioreactor.logger.info(
+                f"Ring light turned OFF, will stay off for {off_time}s"
+            )
+    else:  # state == 'off'
+        # Currently off - check if we should turn on
+        if time_since_switch >= off_time:
+            # Turn ring light on
+            if set_ring_light(bioreactor, color):
+                bioreactor._ring_light_state = 'on'
+                bioreactor._ring_light_last_switch_time = current_time
+                bioreactor.logger.info(
+                    f"Ring light turned ON: color={color}, will stay on for {on_time}s"
+                )
+

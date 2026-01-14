@@ -348,6 +348,39 @@ def init_led(bioreactor, config):
     return {'initialized': True, 'driver': driver}
 
 
+def init_ring_light(bioreactor, config):
+    """
+    Initialize ring light (neopixel) using pi5neo library.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object with ring light settings
+        
+    Returns:
+        dict: {'initialized': bool, 'driver': RingLightDriver}
+    """
+    try:
+        from .io import RingLightDriver
+    except Exception as import_error:
+        logger.error(f"Ring light driver dependencies missing: {import_error}")
+        return {'initialized': False, 'error': str(import_error)}
+    
+    spi_device = getattr(config, 'RING_LIGHT_SPI_DEVICE', '/dev/spidev0.0')
+    num_leds = getattr(config, 'RING_LIGHT_COUNT', 32)
+    spi_speed = getattr(config, 'RING_LIGHT_SPI_SPEED', 800)  # kHz
+    
+    try:
+        driver = RingLightDriver(bioreactor, spi_device, num_leds, spi_speed)
+        # Initialize by turning off (ensures hardware is ready)
+        driver.off()
+        bioreactor.ring_light_driver = driver
+        logger.info(f"Ring light initialized: {num_leds} LEDs on {spi_device} at {spi_speed}kHz")
+        return {'initialized': True, 'driver': driver}
+    except Exception as e:
+        logger.error(f"Ring light initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
 def init_optical_density(bioreactor, config):
     """
     Initialize optical density sensor using ADS1115 ADC.
@@ -492,6 +525,7 @@ COMPONENT_REGISTRY = {
     'peltier_driver': init_peltier_driver,
     'stirrer': init_stirrer,
     'led': init_led,
+    'ring_light': init_ring_light,
     'optical_density': init_optical_density,
     'eyespy_adc': init_eyespy_adc,
 }

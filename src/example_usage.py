@@ -30,6 +30,7 @@ config.INIT_COMPONENTS = {
     'peltier_driver': True,
     'stirrer': True,
     'led': True,  # Enable LED PWM control
+    'ring_light': True,  # Enable ring light (neopixel)
     'optical_density': False,  # Enable optical density sensor (ADS1115)
     'eyespy_adc': True,  # Enable eyespy ADC boards
 }
@@ -51,6 +52,17 @@ with Bioreactor(config) as reactor:
         eyespy_readings = read_all_eyespy_boards(reactor)
         print(f"Eyespy readings: {eyespy_readings}")
 
+    # Pre-job initialization check: ring light test
+    if reactor.is_component_initialized('ring_light') and hasattr(reactor, 'ring_light_driver'):
+        try:
+            reactor.logger.info("Ring light initialization check: turning red for 2 seconds")
+            reactor.ring_light_driver.set_color((255, 0, 0))  # Red
+            time.sleep(2.0)
+            reactor.ring_light_driver.off()
+            reactor.logger.info("Ring light initialization check complete")
+        except Exception as e:
+            reactor.logger.error(f"Ring light initialization check failed: {e}")
+
     # Start scheduled jobs
     # Format: (function, frequency_seconds, duration)
     # frequency: time between calls in seconds, or True for continuous
@@ -62,6 +74,10 @@ with Bioreactor(config) as reactor:
         # Temperature PID controller - maintains temperature at 37.0°C
         # Run PID controller every 5 seconds
         (partial(temperature_pid_controller, setpoint=37.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
+        
+        # Ring light cycle - turns on at (50,50,50) for 60s, then off for 60s, repeating
+        # Check every 1 second to update state
+        (partial(ring_light_cycle, color=(50, 50, 50), on_time=60.0, off_time=60.0), 1, True),
 
     ]
     

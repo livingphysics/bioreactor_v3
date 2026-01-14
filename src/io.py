@@ -165,6 +165,98 @@ class LEDDriver:
         return self._power
 
 
+class RingLightDriver:
+    """Neopixel ring light controller using pi5neo library."""
+
+    def __init__(self, bioreactor, spi_device: str, num_leds: int, spi_speed: int):
+        self.bioreactor = bioreactor
+        self._spi_device = spi_device
+        self._num_leds = num_leds
+        self._spi_speed = spi_speed
+        self._neo = None
+        self._current_color = (0, 0, 0)
+        self._is_on = False
+
+    def _ensure_initialized(self) -> bool:
+        """Ensure the Pi5Neo object is initialized."""
+        if self._neo is None:
+            try:
+                from pi5neo import Pi5Neo
+                self._neo = Pi5Neo(self._spi_device, self._num_leds, self._spi_speed)
+                self.bioreactor.logger.info(f"Ring light initialized: {self._num_leds} LEDs on {self._spi_device}")
+                return True
+            except Exception as e:
+                self.bioreactor.logger.error(f"Failed to initialize ring light: {e}")
+                return False
+        return True
+
+    def set_color(self, color: tuple, pixel: Optional[int] = None) -> bool:
+        """
+        Set ring light color.
+        
+        Args:
+            color: RGB tuple (r, g, b) with values 0-255
+            pixel: Optional pixel index (0-based). If None, sets all pixels.
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self._ensure_initialized():
+            return False
+
+        try:
+            # Clamp color values to 0-255
+            r = max(0, min(255, int(color[0])))
+            g = max(0, min(255, int(color[1])))
+            b = max(0, min(255, int(color[2])))
+            color_tuple = (r, g, b)
+
+            if pixel is None:
+                self._neo.fill_strip(r, g, b)
+            else:
+                if pixel < 0 or pixel >= self._num_leds:
+                    self.bioreactor.logger.error(f"Pixel index {pixel} out of range (0-{self._num_leds-1})")
+                    return False
+                self._neo.set_led_color(pixel, r, g, b)
+            
+            self._neo.update_strip()
+            self._current_color = color_tuple
+            self._is_on = any(c > 0 for c in color_tuple)
+            
+            if pixel is None:
+                self.bioreactor.logger.info(f"Ring light set to color {color_tuple}")
+            else:
+                self.bioreactor.logger.info(f"Ring light pixel {pixel} set to color {color_tuple}")
+            return True
+        except Exception as e:
+            self.bioreactor.logger.error(f"Failed to set ring light color: {e}")
+            return False
+
+    def off(self) -> None:
+        """Turn ring light off (all pixels to black)."""
+        if not self._ensure_initialized():
+            return
+        
+        try:
+            self._neo.fill_strip(0, 0, 0)
+            self._neo.update_strip()
+            self._current_color = (0, 0, 0)
+            self._is_on = False
+            self.bioreactor.logger.info("Ring light turned off")
+        except Exception as e:
+            self.bioreactor.logger.error(f"Failed to turn ring light off: {e}")
+
+    @property
+    def is_on(self) -> bool:
+        """Check if ring light is on (any pixel has non-zero color)."""
+        return self._is_on
+
+    @property
+    def current_color(self) -> tuple:
+        """Get current color setting."""
+        return self._current_color
+
+
 def read_voltage(bioreactor, channel_name: str) -> Optional[float]:
     """
     Read voltage from an optical density ADC channel.
@@ -223,16 +315,65 @@ def set_led(bioreactor, power: float) -> bool:
         return False
 
 
+def set_ring_light(bioreactor, color: tuple, pixel: Optional[int] = None) -> bool:
+    """
+    Set ring light color.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        color: RGB tuple (r, g, b) with values 0-255
+        pixel: Optional pixel index (0-based). If None, sets all pixels.
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not bioreactor.is_component_initialized('ring_light'):
+        bioreactor.logger.warning("Ring light driver not initialized")
+        return False
+    
+    if not hasattr(bioreactor, 'ring_light_driver'):
+        bioreactor.logger.warning("Ring light driver not available")
+        return False
+    
+    try:
+        return bioreactor.ring_light_driver.set_color(color, pixel)
+    except Exception as e:
+        bioreactor.logger.error(f"Error setting ring light color: {e}")
+        return False
+
+
+def turn_off_ring_light(bioreactor) -> None:
+    """
+    Turn ring light off.
+    
+    Args:
+        bioreactor: Bioreactor instance
+    """
+    if not bioreactor.is_component_initialized('ring_light'):
+        return
+    
+    if not hasattr(bioreactor, 'ring_light_driver'):
+        return
+    
+    try:
+        bioreactor.ring_light_driver.off()
+    except Exception as e:
+        bioreactor.logger.error(f"Error turning off ring light: {e}")
+
+
 def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_name: str = 'Trx') -> Optional[Union[float, Dict[str, float]]]:
     """
     Measure optical density by turning LED on, taking readings, and averaging.
     Also reads eyespy ADC boards if initialized.
     
     This function:
-    1. Turns LED on at the given power for 1 second
-    2. Starts taking readings for the specified duration (OD channels and eyespy boards)
-    3. Averages the readings
-    4. Returns the averaged voltage value(s)
+    1. Stores current ring light state and turns it OFF (dodging) to avoid interference with OD measurement
+    2. Turns LED on at the given power for 1 second
+    3. Starts taking readings for the specified duration (OD channels and eyespy boards)
+    4. Averages the readings
+    5. Turns LED off
+    6. Restores ring light to its previous state (after IR LED is off)
+    7. Returns the averaged voltage value(s)
     
     Args:
         bioreactor: Bioreactor instance
@@ -281,6 +422,15 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
     if eyespy_initialized and hasattr(bioreactor, 'eyespy_boards'):
         eyespy_boards = list(bioreactor.eyespy_boards.keys())
     
+    # Store ring light state and turn it off (dodging) before OD measurement
+    ring_light_was_on = False
+    ring_light_previous_color = (0, 0, 0)
+    if bioreactor.is_component_initialized('ring_light') and hasattr(bioreactor, 'ring_light_driver'):
+        ring_light_was_on = bioreactor.ring_light_driver.is_on
+        ring_light_previous_color = bioreactor.ring_light_driver.current_color
+        bioreactor.ring_light_driver.off()
+        bioreactor.logger.info("Ring light turned off for OD measurement (dodging)")
+    
     try:
         # Turn LED on at specified power
         if not set_led(bioreactor, led_power):
@@ -314,6 +464,15 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
         
         # Turn LED off
         bioreactor.led_driver.off()
+        
+        # Restore ring light to previous state (after IR LED is off)
+        if bioreactor.is_component_initialized('ring_light') and hasattr(bioreactor, 'ring_light_driver'):
+            if ring_light_was_on:
+                bioreactor.ring_light_driver.set_color(ring_light_previous_color)
+                bioreactor.logger.info(f"Ring light restored to previous state: color={ring_light_previous_color}")
+            else:
+                # Was already off, ensure it's off
+                bioreactor.ring_light_driver.off()
         
         # Calculate averages for OD channels
         results = {}
@@ -367,6 +526,16 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
             bioreactor.led_driver.off()
         except:
             pass
+        # Restore ring light to previous state even on error
+        if bioreactor.is_component_initialized('ring_light') and hasattr(bioreactor, 'ring_light_driver'):
+            try:
+                if ring_light_was_on:
+                    bioreactor.ring_light_driver.set_color(ring_light_previous_color)
+                    bioreactor.logger.info(f"Ring light restored to previous state after error: color={ring_light_previous_color}")
+                else:
+                    bioreactor.ring_light_driver.off()
+            except Exception as restore_error:
+                bioreactor.logger.error(f"Failed to restore ring light state: {restore_error}")
         return None
 
 

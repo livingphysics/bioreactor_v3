@@ -26,6 +26,7 @@ class Config:
         'peltier_driver': True,  # Enable PWM peltier driver (uses lgpio)
         'stirrer': True,  # PWM stirrer driver
         'led': False,  # LED PWM control
+        'ring_light': False,  # Neopixel ring light (uses pi5neo)
         'optical_density': False,  # Optical density sensor (ADS1115)
         'eyespy_adc': False,  # Eyespy ADC component (ADS1114, based on pioreactor)
     }
@@ -50,6 +51,11 @@ class Config:
     # LED Configuration (PWM control)
     LED_PWM_PIN: int = 25  # BCM pin for LED PWM output
     LED_PWM_FREQ: int = 500  # PWM frequency in Hz
+
+    # Ring Light Configuration (Neopixel, using pi5neo)
+    RING_LIGHT_SPI_DEVICE: str = '/dev/spidev0.0'  # SPI device path
+    RING_LIGHT_COUNT: int = 32  # Number of LEDs in the ring
+    RING_LIGHT_SPI_SPEED: int = 800  # SPI speed in kHz
 
     # Optical Density (OD) Configuration (ADS1115 ADC)
     OD_ADC_CHANNELS: dict[str, str] = {
