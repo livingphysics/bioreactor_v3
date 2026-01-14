@@ -367,12 +367,13 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
     Also reads eyespy ADC boards if initialized.
     
     This function:
-    1. Turns ring light OFF (dodging) to avoid interference with OD measurement
+    1. Stores current ring light state and turns it OFF (dodging) to avoid interference with OD measurement
     2. Turns LED on at the given power for 1 second
     3. Starts taking readings for the specified duration (OD channels and eyespy boards)
     4. Averages the readings
-    5. Returns the averaged voltage value(s)
-    Note: Ring light remains OFF after measurement (does not restore previous state)
+    5. Turns LED off
+    6. Restores ring light to its previous state (after IR LED is off)
+    7. Returns the averaged voltage value(s)
     
     Args:
         bioreactor: Bioreactor instance
@@ -464,6 +465,15 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
         # Turn LED off
         bioreactor.led_driver.off()
         
+        # Restore ring light to previous state (after IR LED is off)
+        if bioreactor.is_component_initialized('ring_light') and hasattr(bioreactor, 'ring_light_driver'):
+            if ring_light_was_on:
+                bioreactor.ring_light_driver.set_color(ring_light_previous_color)
+                bioreactor.logger.info(f"Ring light restored to previous state: color={ring_light_previous_color}")
+            else:
+                # Was already off, ensure it's off
+                bioreactor.ring_light_driver.off()
+        
         # Calculate averages for OD channels
         results = {}
         for ch in channels_to_measure:
@@ -516,6 +526,16 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
             bioreactor.led_driver.off()
         except:
             pass
+        # Restore ring light to previous state even on error
+        if bioreactor.is_component_initialized('ring_light') and hasattr(bioreactor, 'ring_light_driver'):
+            try:
+                if ring_light_was_on:
+                    bioreactor.ring_light_driver.set_color(ring_light_previous_color)
+                    bioreactor.logger.info(f"Ring light restored to previous state after error: color={ring_light_previous_color}")
+                else:
+                    bioreactor.ring_light_driver.off()
+            except Exception as restore_error:
+                bioreactor.logger.error(f"Failed to restore ring light state: {restore_error}")
         return None
 
 
