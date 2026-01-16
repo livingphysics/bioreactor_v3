@@ -233,7 +233,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         dict: Dictionary with all sensor readings
     """
     # Import IO functions
-    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc
+    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc, read_co2
     
     # Get elapsed time
     if elapsed is None:
@@ -345,6 +345,17 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     sensor_data[f"eyespy_{board_name}_raw"] = float('nan')
                     sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
     
+    # Read CO2 sensor if initialized
+    if bioreactor.is_component_initialized('co2_sensor'):
+        co2_value = read_co2(bioreactor)
+        if co2_value is not None:
+            # Store CO2 value multiplied by 10 as requested
+            sensor_data['co2'] = co2_value * 10
+        else:
+            sensor_data['co2'] = float('nan')
+    else:
+        sensor_data['co2'] = float('nan')
+    
     # Write to CSV
     if hasattr(bioreactor, 'writer') and bioreactor.writer:
         csv_row = {'time': elapsed}
@@ -399,6 +410,15 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     if not np.isnan(voltage_value):
                         bioreactor.logger.debug(f"Writing eyespy {board_name} voltage to CSV: {voltage_value:.4f}V (label: {voltage_label})")
         
+        # Add CO2 data if sensor is initialized
+        if bioreactor.is_component_initialized('co2_sensor') and 'co2' in sensor_data:
+            # Get label from config or auto-generate
+            if config and hasattr(config, 'SENSOR_LABELS'):
+                co2_label = config.SENSOR_LABELS.get('co2', 'CO2_ppm_x10')
+            else:
+                co2_label = 'CO2_ppm_x10'
+            csv_row[co2_label] = sensor_data['co2']
+        
         try:
             # Only write fields that exist in fieldnames to avoid errors
             if hasattr(bioreactor, 'fieldnames'):
@@ -426,6 +446,14 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                 voltage = sensor_data[voltage_key]
                 if not np.isnan(voltage):
                     log_parts.append(f"Eyespy {board_name}: {voltage:.4f}V")
+    
+    # Add CO2 reading to log
+    if bioreactor.is_component_initialized('co2_sensor') and 'co2' in sensor_data:
+        co2_value = sensor_data['co2']
+        if not np.isnan(co2_value):
+            # Convert back from x10 to actual ppm for display
+            co2_ppm = co2_value / 10.0
+            log_parts.append(f"CO2: {co2_ppm:.0f} ppm")
     
     bioreactor.logger.info(f"Sensor readings - {', '.join(log_parts)}")
     

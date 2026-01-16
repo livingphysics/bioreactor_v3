@@ -29,6 +29,7 @@ class Config:
         'ring_light': False,  # Neopixel ring light (uses pi5neo)
         'optical_density': False,  # Optical density sensor (ADS1115)
         'eyespy_adc': False,  # Eyespy ADC component (ADS1114, based on pioreactor)
+        'co2_sensor': False,  # Senseair K33 CO2 sensor (I2C)
     }
     
     # Sensor Labels for CSV output
@@ -80,3 +81,8 @@ class Config:
             'gain': 1.0,
         },
     }
+    
+    # CO2 Sensor Configuration (Senseair K33)
+    CO2_SENSOR_ENABLED: bool = False  # Set to True to enable CO2 sensor
+    CO2_SENSOR_I2C_ADDRESS: int = 0x68  # I2C address (default: 0x68)
+    CO2_SENSOR_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
