@@ -106,6 +106,12 @@ class Bioreactor():
                     if voltage_key not in config.SENSOR_LABELS:
                         config.SENSOR_LABELS[voltage_key] = f"Eyespy_{board_name}_V"
             
+            # Auto-populate CO2 sensor label if co2_sensor is enabled
+            co2_enabled = init_components.get('co2_sensor', False)
+            if co2_enabled:
+                if 'co2' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['co2'] = 'CO2_ppm_x10'
+            
             # Build fieldnames from SENSOR_LABELS
             sensor_keys = list(config.SENSOR_LABELS.keys())
             fieldnames = ['time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]

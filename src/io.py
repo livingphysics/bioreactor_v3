@@ -795,3 +795,106 @@ def read_all_eyespy_boards(bioreactor) -> Optional[Dict[str, int]]:
             readings[board_name] = None
     
     return readings
+
+
+def read_co2(bioreactor) -> Optional[int]:
+    """
+    Read CO2 concentration from Senseair K33 sensor via I2C.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        
+    Returns:
+        int: CO2 concentration in ppm, or None if error
+    """
+    if not bioreactor.is_component_initialized('co2_sensor'):
+        bioreactor.logger.warning("CO2 sensor not initialized")
+        return None
+    
+    if not hasattr(bioreactor, 'co2_sensor_config'):
+        bioreactor.logger.warning("CO2 sensor configuration not available")
+        return None
+    
+    try:
+        from smbus2 import SMBus, i2c_msg
+        import time
+    except ImportError as e:
+        bioreactor.logger.error(f"CO2 sensor requires smbus2: {e}")
+        return None
+    
+    # Senseair K33 protocol constants
+    READRAM_CMD = 0x22
+    CO2_RAM_ADDR_HI = 0x00
+    CO2_RAM_ADDR_LO = 0x08
+    
+    def calc_checksum(data_bytes):
+        """Calculate checksum for Senseair K33 protocol."""
+        return sum(data_bytes) & 0xFF
+    
+    try:
+        config = bioreactor.co2_sensor_config
+        i2c_addr = config['i2c_address']
+        bus_num = config['i2c_bus']
+        
+        with SMBus(bus_num) as bus:
+            # Prepare ReadRAM command frame: [command, addr_hi, addr_lo, checksum]
+            command = READRAM_CMD
+            addr_hi = CO2_RAM_ADDR_HI
+            addr_lo = CO2_RAM_ADDR_LO
+            
+            # Calculate checksum for write command
+            write_checksum = calc_checksum([command, addr_hi, addr_lo])
+            write_packet = [command, addr_hi, addr_lo, write_checksum]
+            
+            # Use raw i2c_msg for reliable communication
+            write_msg = i2c_msg.write(i2c_addr, write_packet)
+            bus.i2c_rdwr(write_msg)
+            time.sleep(0.05)  # Wait for sensor to prepare data (50ms recommended)
+            
+            # Read response: 4 bytes [status, co2_high, co2_low, checksum]
+            read_msg = i2c_msg.read(i2c_addr, 4)
+            bus.i2c_rdwr(read_msg)
+            response = list(read_msg)
+            
+            if len(response) < 4:
+                bioreactor.logger.error(f"Incomplete CO2 response: got {len(response)} bytes, expected 4")
+                return None
+            
+            status = response[0]
+            co2_high = response[1]
+            co2_low = response[2]
+            read_checksum = response[3]
+            
+            # Validate status byte (bit 0 should be 1 for success)
+            if (status & 0x01) == 0:
+                bioreactor.logger.error(f"Senseair K33 error: status byte indicates failure (0x{status:02X})")
+                return None
+            
+            # Validate checksum
+            expected_checksum = calc_checksum([status, co2_high, co2_low])
+            if read_checksum != expected_checksum:
+                bioreactor.logger.error(
+                    f"CO2 checksum mismatch: got 0x{read_checksum:02X}, expected 0x{expected_checksum:02X}"
+                )
+                return None
+            
+            # Combine high and low bytes to get CO2 value, then multiply by 10 to get PPM
+            co2_raw = (co2_high << 8) | co2_low
+            co2_ppm = co2_raw * 10
+            
+            return co2_ppm
+        
+    except OSError as e:
+        if e.errno == 121:
+            config = bioreactor.co2_sensor_config
+            i2c_addr = config['i2c_address']
+            bus_num = config['i2c_bus']
+            bioreactor.logger.error(
+                f"Remote I/O error (121): CO2 sensor not responding at address 0x{i2c_addr:02X} on bus {bus_num}"
+            )
+        else:
+            bioreactor.logger.error(f"I2C communication error reading CO2: {e}")
+        return None
+    except Exception as e:
+        bioreactor.logger.error(f"Failed to read from CO2 sensor: {e}")
+        return None

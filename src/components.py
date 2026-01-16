@@ -518,6 +518,48 @@ def init_eyespy_adc(bioreactor, config):
         return {'initialized': False, 'error': str(e)}
 
 
+def init_co2_sensor(bioreactor, config):
+    """
+    Initialize Senseair K33 CO2 sensor via I2C.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object with CO2_SENSOR configuration
+        
+    Returns:
+        dict: {'initialized': bool}
+    """
+    try:
+        # Test that smbus2 is available
+        from smbus2 import SMBus
+    except ImportError as import_error:
+        logger.error(f"CO2 sensor dependencies missing: {import_error}. Install with: pip install smbus2")
+        return {'initialized': False, 'error': str(import_error)}
+    
+    try:
+        # Get CO2 sensor configuration from config
+        co2_enabled = getattr(config, 'CO2_SENSOR_ENABLED', False)
+        co2_i2c_address = getattr(config, 'CO2_SENSOR_I2C_ADDRESS', 0x68)
+        co2_i2c_bus = getattr(config, 'CO2_SENSOR_I2C_BUS', 1)
+        
+        if not co2_enabled:
+            logger.info("CO2 sensor disabled in configuration")
+            return {'initialized': False, 'error': 'CO2 sensor disabled'}
+        
+        # Store configuration on bioreactor instance
+        bioreactor.co2_sensor_config = {
+            'i2c_address': co2_i2c_address,
+            'i2c_bus': co2_i2c_bus,
+        }
+        
+        logger.info(f"CO2 sensor initialized: address={hex(co2_i2c_address)}, bus={co2_i2c_bus}")
+        
+        return {'initialized': True}
+    except Exception as e:
+        logger.error(f"CO2 sensor initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
 # Component registry - maps component names to initialization functions
 COMPONENT_REGISTRY = {
     'i2c': init_i2c,
@@ -528,5 +570,6 @@ COMPONENT_REGISTRY = {
     'ring_light': init_ring_light,
     'optical_density': init_optical_density,
     'eyespy_adc': init_eyespy_adc,
+    'co2_sensor': init_co2_sensor,
 }
 
