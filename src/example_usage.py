@@ -33,6 +33,7 @@ config.INIT_COMPONENTS = {
     'ring_light': True,  # Enable ring light (neopixel)
     'optical_density': True,  # Enable optical density sensor (ADS1115)
     'eyespy_adc': False,  # Enable eyespy ADC boards
+    'co2_sensor': True,  # Senseair K33 CO2 sensor (I2C)
 }
 
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
@@ -77,7 +78,7 @@ with Bioreactor(config) as reactor:
         
         # Ring light cycle - turns on at (50,50,50) for 60s, then off for 60s, repeating
         # Check every 1 second to update state
-        (partial(ring_light_cycle, color=(100, 100, 100), on_time=7200.0, off_time=7200.0), 1, True),
+        (partial(ring_light_cycle, color=(100, 100, 100), on_time=43200.0, off_time=43200.0), 1, True),
 
     ]
     
