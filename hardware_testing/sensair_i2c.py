@@ -14,9 +14,10 @@ K33_I2C_ADDR = 0x68
 READRAM_CMD = 0x22
 
 # CO2 data RAM addresses (high byte, low byte)
+# Reading from RAM address 0x0008 (high byte) and 0x0009 (low byte) = 2 bytes
 CO2_RAM_ADDR_HI = 0x00
 CO2_RAM_ADDR_LO = 0x08
-CO2_BYTES = 2
+CO2_BYTES = 2  # Number of bytes to read (2 bytes for CO2 value)
 
 
 def calc_checksum(data_bytes):
@@ -77,14 +78,15 @@ def scan_i2c_bus(bus_num=1):
     return found_devices
 
 
-def read_co2(bus_num=1, i2c_addr=K33_I2C_ADDR, use_raw_i2c=False):
+def read_co2(bus_num=1, i2c_addr=K33_I2C_ADDR, use_raw_i2c=False, debug=False):
     """
     Read CO2 concentration from Senseair K33 sensor via I2C.
     
     Args:
-        bus_num: I2C bus number (default: 1, use 68 if that's your bus)
+        bus_num: I2C bus number (default: 1)
         i2c_addr: I2C address of the sensor (default: 0x68)
         use_raw_i2c: If True, use raw i2c_msg for more control
+        debug: If True, print debug information about the communication
         
     Returns:
         CO2 concentration in ppm (integer)
@@ -95,55 +97,61 @@ def read_co2(bus_num=1, i2c_addr=K33_I2C_ADDR, use_raw_i2c=False):
     try:
         with SMBus(bus_num) as bus:
             # Prepare ReadRAM command frame
-            # Format: [command, nbytes, addr_hi, addr_lo, checksum]
+            # According to Senseair K33 protocol:
+            # Write frame: [command, addr_hi, addr_lo, checksum]
+            # Checksum = sum(command + addr_hi + addr_lo) & 0xFF
             command = READRAM_CMD
-            nbytes = CO2_BYTES
             addr_hi = CO2_RAM_ADDR_HI
             addr_lo = CO2_RAM_ADDR_LO
             
-            # Calculate checksum for write command
-            write_checksum = calc_checksum([command, nbytes, addr_hi, addr_lo])
+            # Calculate checksum for write command (sum of command + address bytes)
+            write_checksum = calc_checksum([command, addr_hi, addr_lo])
+            
+            # Build write packet: [0x22, 0x00, 0x08, checksum]
+            write_packet = [command, addr_hi, addr_lo, write_checksum]
+            
+            if debug:
+                print(f"Write packet: {[f'0x{b:02X}' for b in write_packet]}")
+                print(f"  Command: 0x{command:02X}, Addr: 0x{addr_hi:02X}{addr_lo:02X}, Checksum: 0x{write_checksum:02X}")
             
             if use_raw_i2c:
-                # Method 1: Use raw i2c_msg for more control
-                write_data = [command, nbytes, addr_hi, addr_lo, write_checksum]
-                write_msg = i2c_msg.write(i2c_addr, write_data)
-                read_msg = i2c_msg.read(i2c_addr, 4)
-                
+                # Method 1: Use raw i2c_msg (most reliable for Senseair K33)
+                write_msg = i2c_msg.write(i2c_addr, write_packet)
                 bus.i2c_rdwr(write_msg)
-                time.sleep(0.05)  # Wait for sensor to prepare data
-                bus.i2c_rdwr(read_msg)
+                time.sleep(0.05)  # Wait for sensor to prepare data (50ms recommended)
                 
+                # Read response: 4 bytes [status, co2_high, co2_low, checksum]
+                read_msg = i2c_msg.read(i2c_addr, 4)
+                bus.i2c_rdwr(read_msg)
                 response = list(read_msg)
+                
+                if debug:
+                    print(f"Read response: {[f'0x{b:02X}' for b in response]}")
             else:
                 # Method 2: Use block data write/read
-                # Try writing command byte first, then data
                 try:
-                    # Alternative: write byte data
-                    bus.write_byte(i2c_addr, command)
-                    time.sleep(0.01)
-                    bus.write_byte(i2c_addr, nbytes)
-                    bus.write_byte(i2c_addr, addr_hi)
-                    bus.write_byte(i2c_addr, addr_lo)
-                    bus.write_byte(i2c_addr, write_checksum)
+                    # Write the command packet
+                    bus.write_i2c_block_data(i2c_addr, command, [addr_hi, addr_lo, write_checksum])
                 except:
-                    # Fallback: write block data
-                    write_data = [nbytes, addr_hi, addr_lo, write_checksum]
-                    bus.write_i2c_block_data(i2c_addr, command, write_data)
+                    # Fallback: write using i2c_msg if block write fails
+                    write_msg = i2c_msg.write(i2c_addr, write_packet)
+                    bus.i2c_rdwr(write_msg)
                 
-                # Wait for sensor to prepare data (typically 10-50ms)
+                # Wait for sensor to prepare data (typically 50ms)
                 time.sleep(0.05)
                 
                 # Read response: [status, co2_high, co2_low, checksum]
                 try:
-                    # Try reading block data
+                    # Try reading block data (4 bytes)
                     response = bus.read_i2c_block_data(i2c_addr, 0x00, 4)
                 except:
-                    # Fallback: read bytes individually
-                    response = []
-                    for i in range(4):
-                        response.append(bus.read_byte(i2c_addr))
-                        time.sleep(0.001)
+                    # Fallback: use i2c_msg for reading
+                    read_msg = i2c_msg.read(i2c_addr, 4)
+                    bus.i2c_rdwr(read_msg)
+                    response = list(read_msg)
+                
+                if debug:
+                    print(f"Read response: {[f'0x{b:02X}' for b in response]}")
             
             if len(response) < 4:
                 raise IOError(f"Incomplete response: got {len(response)} bytes, expected 4")
@@ -212,7 +220,7 @@ if __name__ == "__main__":
     # If you need bus 68, change bus_num to 68
     # If using standard Raspberry Pi I2C, bus_num is typically 1
     
-    bus_num = 68  # Change to your actual bus number
+    bus_num = 1  # Change to your actual bus number
     
     # First, scan the bus to see if device is detected
     print("Scanning I2C bus for devices...")
@@ -228,13 +236,13 @@ if __name__ == "__main__":
     print("\nAttempting to read CO2...")
     try:
         # Try standard method first
-        co2_value = read_co2(bus_num=bus_num)
+        co2_value = read_co2(bus_num=bus_num, debug=True)
         print(f"CO2 concentration: {co2_value} ppm")
     except Exception as e:
         print(f"Error with standard method: {e}")
         print("\nTrying alternative method (raw I2C)...")
         try:
-            co2_value = read_co2(bus_num=bus_num, use_raw_i2c=True)
+            co2_value = read_co2(bus_num=bus_num, use_raw_i2c=True, debug=True)
             print(f"CO2 concentration: {co2_value} ppm")
         except Exception as e2:
             print(f"Error with alternative method: {e2}")
