@@ -35,25 +35,40 @@ def calc_checksum(data_bytes):
 
 def scan_i2c_bus(bus_num=1):
     """
-    Scan I2C bus for devices.
+    Scan I2C bus for devices using method similar to i2cdetect.
+    Uses i2c_rdwr with empty write message to probe devices (most reliable method).
     
     Args:
         bus_num: I2C bus number to scan
         
     Returns:
-        List of found I2C addresses
+        List of found I2C addresses (as hex strings)
     """
     found_devices = []
     try:
         with SMBus(bus_num) as bus:
             print(f"Scanning I2C bus {bus_num}...")
-            for address in range(0x03, 0x78):
+            for address in range(0x08, 0x78):
+                # Skip reserved addresses (0x00-0x07 and 0x78-0x7F)
+                device_found = False
+                
+                # Method 1: Try i2c_rdwr with empty write (most reliable, like i2cdetect)
                 try:
-                    bus.read_byte(address)
-                    found_devices.append(hex(address))
-                    print(f"  Device found at address {hex(address)}")
+                    write_msg = i2c_msg.write(address, [])
+                    bus.i2c_rdwr(write_msg)
+                    device_found = True
                 except OSError:
-                    pass
+                    # Method 2: Try reading a byte (works for some devices)
+                    try:
+                        bus.read_byte(address)
+                        device_found = True
+                    except OSError:
+                        pass
+                
+                if device_found:
+                    addr_hex = hex(address)
+                    found_devices.append(addr_hex)
+                    print(f"  Device found at address {addr_hex}")
     except Exception as e:
         print(f"Error scanning bus: {e}")
     
