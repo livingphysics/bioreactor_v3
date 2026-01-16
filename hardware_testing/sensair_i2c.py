@@ -1,9 +1,9 @@
 """
 Senseair K33 CO2 Sensor I2C Interface
-Uses smbus to read CO2 data from Senseair K33 sensor via I2C
+Uses smbus2 to read CO2 data from Senseair K33 sensor via I2C
 """
 
-import smbus
+from smbus2 import SMBus
 import time
 
 
@@ -49,7 +49,7 @@ def read_co2(bus_num=1, i2c_addr=K33_I2C_ADDR):
     """
     try:
         # Open I2C bus
-        bus = smbus.SMBus(bus_num)
+        bus = SMBus(bus_num)
         
         # Prepare ReadRAM command frame
         # Format: [command, nbytes, addr_hi, addr_lo, checksum]
