@@ -12,11 +12,11 @@ _CMD_READ_CO2 = [0x00, 0x08, 0x2A]
 _REPLY_LEN = 4
 
 
-def read_co2_ppm(bus_num=68, address=0x68, delay_s=0.02):
+def read_co2_ppm(bus_num=1, address=0x68, delay_s=0.02):
     """
     Read CO2 (ppm) from Senseair K33 over I2C.
     bus_num: I2C bus number (e.g., 1 on RPi)
-    address: I2C address of sensor (typically 0x68)
+    address: I2C address of sensor (0x68 shows as "68" in i2cdetect)
     """
     with SMBus(bus_num) as bus:
         bus.write_i2c_block_data(address, _REG_READ_CO2, _CMD_READ_CO2)
