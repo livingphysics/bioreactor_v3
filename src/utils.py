@@ -349,8 +349,8 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
     if bioreactor.is_component_initialized('co2_sensor'):
         co2_value = read_co2(bioreactor)
         if co2_value is not None:
-            # Store CO2 value multiplied by 10 as requested
-            sensor_data['co2'] = co2_value * 10
+            # read_co2 already returns value multiplied by 10 to get PPM
+            sensor_data['co2'] = co2_value
         else:
             sensor_data['co2'] = float('nan')
     else:
@@ -451,9 +451,8 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
     if bioreactor.is_component_initialized('co2_sensor') and 'co2' in sensor_data:
         co2_value = sensor_data['co2']
         if not np.isnan(co2_value):
-            # Convert back from x10 to actual ppm for display
-            co2_ppm = co2_value / 10.0
-            log_parts.append(f"CO2: {co2_ppm:.0f} ppm")
+            # Value is already in PPM (multiplied by 10 in read_co2)
+            log_parts.append(f"CO2: {co2_value:.0f} ppm")
     
     bioreactor.logger.info(f"Sensor readings - {', '.join(log_parts)}")
     

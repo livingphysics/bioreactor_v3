@@ -878,8 +878,9 @@ def read_co2(bioreactor) -> Optional[int]:
                 )
                 return None
             
-            # Combine high and low bytes to get CO2 value in ppm
-            co2_ppm = (co2_high << 8) | co2_low
+            # Combine high and low bytes to get CO2 value, then multiply by 10 to get PPM
+            co2_raw = (co2_high << 8) | co2_low
+            co2_ppm = co2_raw * 10
             
             return co2_ppm
         
