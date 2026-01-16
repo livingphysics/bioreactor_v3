@@ -258,6 +258,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     Groups columns by type:
     - OD and Eyespy voltage readings (columns containing 'OD', 'od', 'eyespy', or 'Eyespy') -> one subplot
     - Temperature (columns containing 'temp' or 'temperature') -> one subplot
+    - CO2 (columns containing 'co2' or 'CO2') -> one subplot
     - Time -> x-axis for all
     
     Note: Only voltage columns are plotted (raw ADC values are excluded).
@@ -299,6 +300,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         groups = {
             'OD': [],
             'Temperature': [],
+            'CO2': [],
             'Time': []
         }
         
@@ -316,6 +318,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     groups['OD'].append(header)
             elif 'temp' in header_lower:
                 groups['Temperature'].append(header)
+            elif 'co2' in header_lower:
+                # Group CO2 columns
+                groups['CO2'].append(header)
         
         # Remove empty groups
         return {k: v for k, v in groups.items() if v}
@@ -524,6 +529,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     ax.set_ylabel('Voltage (V)')  # OD and Eyespy both use this
                 elif group_name == 'Temperature':
                     ax.set_ylabel('Temperature (°C)')
+                elif group_name == 'CO2':
+                    ax.set_ylabel('CO2 (ppm)')
                 
                 # Plot each column in the group for this source
                 for col_idx, col in enumerate(columns):
