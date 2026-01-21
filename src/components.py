@@ -520,7 +520,7 @@ def init_eyespy_adc(bioreactor, config):
 
 def init_co2_sensor(bioreactor, config):
     """
-    Initialize Senseair K33 CO2 sensor via I2C.
+    Initialize CO2 sensor via I2C.
     
     Args:
         bioreactor: Bioreactor instance
@@ -530,30 +530,58 @@ def init_co2_sensor(bioreactor, config):
         dict: {'initialized': bool}
     """
     try:
-        # Test that smbus2 is available
-        from smbus2 import SMBus
-    except ImportError as import_error:
-        logger.error(f"CO2 sensor dependencies missing: {import_error}. Install with: pip install smbus2")
-        return {'initialized': False, 'error': str(import_error)}
-    
-    try:
         # Get CO2 sensor configuration from config
         co2_enabled = getattr(config, 'CO2_SENSOR_ENABLED', False)
-        co2_i2c_address = getattr(config, 'CO2_SENSOR_I2C_ADDRESS', 0x68)
         co2_i2c_bus = getattr(config, 'CO2_SENSOR_I2C_BUS', 1)
-        
+        co2_type = getattr(config, 'CO2_SENSOR_TYPE', 'sensair_k33').lower()
+
         if not co2_enabled:
             logger.info("CO2 sensor disabled in configuration")
             return {'initialized': False, 'error': 'CO2 sensor disabled'}
         
+        # Set default I2C address based on sensor type if not specified
+        co2_i2c_address = getattr(config, 'CO2_SENSOR_I2C_ADDRESS', None)
+        if co2_i2c_address is None:
+            # Use type-specific defaults
+            if co2_type.startswith('sensair'):
+                co2_i2c_address = 0x68  # Default for Senseair K33
+            elif co2_type.startswith('atlas'):
+                co2_i2c_address = 0x69  # Default for Atlas Scientific
+            else:
+                # Fallback to 0x68 if unknown type
+                co2_i2c_address = 0x68
+                logger.warning(f"Unknown CO2 sensor type '{co2_type}', using default address 0x68")
+
+        # Check dependencies based on sensor type
+        if co2_type.startswith('sensair'):
+            try:
+                from smbus2 import SMBus  # noqa: F401
+            except ImportError as import_error:
+                logger.error(f"CO2 sensor (Senseair K33) dependencies missing: {import_error}. Install with: pip install smbus2")
+                return {'initialized': False, 'error': str(import_error)}
+        elif co2_type.startswith('atlas'):
+            try:
+                # atlas_i2c is provided by Atlas Scientific library (external)
+                from atlas_i2c import atlas_i2c  # noqa: F401
+            except ImportError as import_error:
+                logger.error(f"CO2 sensor (Atlas) dependencies missing: {import_error}. Install the atlas_i2c library.")
+                return {'initialized': False, 'error': str(import_error)}
+        else:
+            error_msg = f"Unsupported CO2 sensor type: {co2_type}"
+            logger.error(error_msg)
+            return {'initialized': False, 'error': error_msg}
+
         # Store configuration on bioreactor instance
         bioreactor.co2_sensor_config = {
             'i2c_address': co2_i2c_address,
             'i2c_bus': co2_i2c_bus,
+            'type': co2_type,
         }
-        
-        logger.info(f"CO2 sensor initialized: address={hex(co2_i2c_address)}, bus={co2_i2c_bus}")
-        
+
+        logger.info(
+            f"CO2 sensor initialized: type={co2_type}, address={hex(co2_i2c_address)}, bus={co2_i2c_bus}"
+        )
+
         return {'initialized': True}
     except Exception as e:
         logger.error(f"CO2 sensor initialization failed: {e}")

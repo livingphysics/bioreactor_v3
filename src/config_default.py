@@ -3,7 +3,7 @@ Configuration class for bioreactor components.
 Modify INIT_COMPONENTS to enable/disable specific components.
 """
 
-from typing import Union
+from typing import Union, Optional
 
 
 class Config:
@@ -82,7 +82,11 @@ class Config:
         },
     }
     
-    # CO2 Sensor Configuration (Senseair K33)
+    # CO2 Sensor Configuration
+    # CO2_SENSOR_TYPE options:
+    #   - 'sensair_k33' (default): Senseair K33 sensor over I2C (default address: 0x68)
+    #   - 'atlas' or 'atlas_i2c': Atlas Scientific CO2 sensor over I2C using atlas_i2c library (default address: 0x69)
+    CO2_SENSOR_TYPE: str = 'sensair_k33'
     CO2_SENSOR_ENABLED: bool = False  # Set to True to enable CO2 sensor
-    CO2_SENSOR_I2C_ADDRESS: int = 0x68  # I2C address (default: 0x68)
+    CO2_SENSOR_I2C_ADDRESS: Optional[int] = None  # I2C address for CO2 sensor (None = use type-specific default: 0x68 for sensair_k33, 0x69 for atlas)
     CO2_SENSOR_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
