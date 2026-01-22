@@ -84,7 +84,7 @@ class Config:
     
     # CO2 Sensor Configuration
     # CO2_SENSOR_TYPE options:
-    #   - 'sensair_k33' (default): Senseair K33 sensor over I2C (default address: 0x68)
+    #   - 'sensair' or'sensair_k33' (default): Senseair K33 sensor over I2C (default address: 0x68)
     #   - 'atlas' or 'atlas_i2c': Atlas Scientific CO2 sensor over I2C using atlas_i2c library (default address: 0x69)
     CO2_SENSOR_TYPE: str = 'sensair_k33'
     CO2_SENSOR_ENABLED: bool = False  # Set to True to enable CO2 sensor
