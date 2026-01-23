@@ -647,6 +647,35 @@ def init_pumps(bioreactor, config):
                 pump.set_step_mode(step_mode)
                 pump.set_current_limit(current_limit)
                 
+                # Test pump with short forward and reverse movement
+                logger.info(f"Testing pump {pump_name} with short forward/reverse movement...")
+                try:
+                    # Calculate a test velocity (small movement for testing)
+                    # Use a low rate: ~0.1 ml/sec for testing
+                    test_rate_ml_per_sec = 0.1
+                    STEPS_PER_ML = 1000.0  # Same conversion as in io.py
+                    steps_per_pulse = 0.5 ** step_mode
+                    test_velocity = int((test_rate_ml_per_sec * STEPS_PER_ML) / steps_per_pulse)
+                    
+                    # Forward movement (1 second)
+                    pump.set_target_velocity(test_velocity)
+                    time.sleep(1.0)
+                    
+                    # Stop briefly
+                    pump.set_target_velocity(0)
+                    time.sleep(0.5)
+                    
+                    # Reverse movement (1 second)
+                    pump.set_target_velocity(-test_velocity)
+                    time.sleep(1.0)
+                    
+                    # Stop
+                    pump.set_target_velocity(0)
+                    
+                    logger.info(f"Pump {pump_name} test movement completed successfully")
+                except Exception as test_error:
+                    logger.warning(f"Pump {pump_name} test movement failed: {test_error}. Continuing anyway...")
+                
                 # Store pump object and config
                 pumps[pump_name] = pump
                 pump_configs[pump_name] = {
