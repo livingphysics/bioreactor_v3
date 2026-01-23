@@ -64,6 +64,29 @@ with Bioreactor(config) as reactor:
         except Exception as e:
             reactor.logger.error(f"Ring light initialization check failed: {e}")
 
+    # Pre-job initialization check: pump test (forward and backward)
+    if reactor.is_component_initialized('pumps') and hasattr(reactor, 'pumps'):
+        try:
+            # Use 'inflow' pump if available, otherwise use the first available pump
+            pump_name = 'inflow' if 'inflow' in reactor.pumps else list(reactor.pumps.keys())[0] if reactor.pumps else None
+            
+            if pump_name:
+                reactor.logger.info(f"Pump initialization check: running {pump_name} forward for 2 seconds at 2 ml/s")
+                change_pump(reactor, pump_name, ml_per_sec=2.0, direction='forward')
+                time.sleep(2.0)
+                
+                reactor.logger.info(f"Pump initialization check: running {pump_name} backward for 2 seconds at 2 ml/s")
+                change_pump(reactor, pump_name, ml_per_sec=2.0, direction='reverse')
+                time.sleep(2.0)
+                
+                # Stop the pump
+                change_pump(reactor, pump_name, ml_per_sec=0.0)
+                reactor.logger.info(f"Pump initialization check complete for {pump_name}")
+            else:
+                reactor.logger.warning("No pumps available for initialization check")
+        except Exception as e:
+            reactor.logger.error(f"Pump initialization check failed: {e}")
+
     # Start scheduled jobs
     # Format: (function, frequency_seconds, duration)
     # frequency: time between calls in seconds, or True for continuous
