@@ -660,11 +660,13 @@ def init_pumps(bioreactor, config):
                 
                 # Store pump object and config
                 pumps[name] = tic
+                steps_per_ml = settings.get('steps_per_ml', 10000000.0)  # Get per-pump calibration
                 pump_configs[name] = {
                     'serial': serial,
                     'step_mode': step_mode,
                     'current_limit': current_limit,
                     'direction': direction,
+                    'steps_per_ml': steps_per_ml,
                 }
                 pump_direction[name] = direction
                 

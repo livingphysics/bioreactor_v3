@@ -960,7 +960,7 @@ def read_co2(bioreactor) -> Optional[int]:
         return None
 
 
-def change_pump(bioreactor, pump_name: str, ml_per_sec: float) -> None:
+def change_pump(bioreactor, pump_name: str, ml_per_sec: float, direction: Optional[str] = None) -> None:
     """
     Change pump flow rate in ml/sec.
     
@@ -971,6 +971,8 @@ def change_pump(bioreactor, pump_name: str, ml_per_sec: float) -> None:
         bioreactor: Bioreactor instance
         pump_name: Name of the pump (e.g., 'inflow', 'outflow')
         ml_per_sec: Desired flow rate in ml/sec (>= 0)
+        direction: Optional direction override ('forward' or 'reverse'). 
+                  If None, uses direction from pump config.
         
     Raises:
         ValueError: If pump not found, ml_per_sec is negative, or other validation errors
@@ -984,21 +986,29 @@ def change_pump(bioreactor, pump_name: str, ml_per_sec: float) -> None:
     if ml_per_sec < 0:
         raise ValueError("ml_per_sec must be positive")
     
-    # Get pump direction from config (default to 'forward' if not specified)
-    pump_cfg = bioreactor.pump_configs.get(pump_name, {})
-    direction = pump_cfg.get('direction', 'forward')
+    # Get pump direction: use provided direction or fall back to config
+    if direction is not None:
+        if direction not in ('forward', 'reverse'):
+            raise ValueError(f"Direction must be 'forward' or 'reverse', got: {direction}")
+        pump_direction = direction
+    else:
+        # Get direction from config (default to 'forward' if not specified)
+        pump_cfg = bioreactor.pump_configs.get(pump_name, {})
+        pump_direction = pump_cfg.get('direction', 'forward')
+        if pump_direction not in ('forward', 'reverse'):
+            raise ValueError(f"Pump {pump_name} has invalid direction configuration: {pump_direction}")
     
-    if direction not in ('forward', 'reverse'):
-        raise ValueError(f"Pump {pump_name} has invalid direction configuration: {direction}")
+    # Get steps_per_ml from pump config (per-pump calibration)
+    pump_cfg = bioreactor.pump_configs.get(pump_name, {})
+    steps_per_ml = pump_cfg.get('steps_per_ml', 10000000.0)  # Default fallback if not specified
     
     # Simple conversion: ml/sec to steps/sec (without calibration)
     # In bioreactor_v2, this would be: steps_per_sec = 8*int((ml_per_sec - intercept) / gradient)
     # For now, use a simple linear conversion without intercept
-    STEPS_PER_ML = 1000.0  # TODO: Calibrate this value for your pumps
-    steps_per_sec = 8 * int(ml_per_sec * STEPS_PER_ML / 8)  # Match bioreactor_v2 pattern: 8*int(...)
+    steps_per_sec = 8 * int(ml_per_sec * steps_per_ml / 8)  # Match bioreactor_v2 pattern: 8*int(...)
     
     # Set velocity sign: positive if direction is 'forward', negative if 'reverse'
-    velocity = steps_per_sec if direction == 'forward' else -steps_per_sec
+    velocity = steps_per_sec if pump_direction == 'forward' else -steps_per_sec
     
     try:
         pump = bioreactor.pumps[pump_name]
@@ -1012,7 +1022,7 @@ def change_pump(bioreactor, pump_name: str, ml_per_sec: float) -> None:
             pump.set_target_velocity(velocity)
             bioreactor.logger.info(
                 f"Set pump {pump_name} to {ml_per_sec:.4f} ml/sec "
-                f"(velocity {velocity}, direction {direction})."
+                f"(velocity {velocity}, direction {pump_direction})."
             )
     except Exception as e:
         bioreactor.logger.error(f"Error setting velocity for '{pump_name}': {e}")
