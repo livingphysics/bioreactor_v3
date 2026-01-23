@@ -602,6 +602,7 @@ def init_co2_sensor(bioreactor, config):
 def init_pumps(bioreactor, config):
     """
     Initialize pump controllers using ticUSB protocol.
+    Follows the bioreactor_v2 initialization pattern.
     
     Args:
         bioreactor: Bioreactor instance
@@ -626,68 +627,51 @@ def init_pumps(bioreactor, config):
         
         pumps = {}
         pump_configs = {}
+        pump_direction = {}
         
-        # Initialize each pump
-        for pump_name, pump_cfg in pumps_config.items():
-            serial = pump_cfg.get('serial')
-            step_mode = pump_cfg.get('step_mode', 3)
-            current_limit = pump_cfg.get('current_limit', 32)
+        # Initialize each pump (following bioreactor_v2 pattern)
+        for name, settings in pumps_config.items():
+            serial = settings.get('serial')
+            direction = settings.get('direction', 'forward')
+            step_mode = settings.get('step_mode', 3)
+            current_limit = settings.get('current_limit', 32)
             
             if not serial:
-                logger.error(f"Pump {pump_name} missing serial number in configuration")
+                logger.error(f"Pump {name} missing serial number in configuration")
                 continue
             
+            # Validate direction (matching bioreactor_v2)
+            if direction not in ('forward', 'reverse'):
+                raise ValueError(f"Pump {name} must have direction set to 'forward' or 'reverse'")
+            
             try:
-                # Initialize TicUSB device
-                pump = TicUSB(serial_number=serial)
+                # Initialize TicUSB device (following bioreactor_v2 pattern)
+                tic = TicUSB(serial_number=serial)
+                tic.energize()
+                tic.exit_safe_start()
+                tic.set_step_mode(step_mode)
+                tic.set_current_limit(current_limit)
                 
-                # Configure pump
-                pump.energize()
-                pump.exit_safe_start()
-                pump.set_step_mode(step_mode)
-                pump.set_current_limit(current_limit)
-                
-                # Test pump with short forward and reverse movement
-                logger.info(f"Testing pump {pump_name} with short forward/reverse movement...")
-                try:
-                    # Calculate a test velocity (small movement for testing)
-                    # Use a low rate: ~0.1 ml/sec for testing
-                    test_rate_ml_per_sec = 10
-                    STEPS_PER_ML = 1000.0  # Same conversion as in io.py
-                    steps_per_pulse = 0.5 ** step_mode
-                    test_velocity = int((test_rate_ml_per_sec * STEPS_PER_ML) / steps_per_pulse)
-                    
-                    # Forward movement (1 second)
-                    pump.set_target_velocity(test_velocity)
-                    time.sleep(1.0)
-                    
-                    # Stop briefly
-                    pump.set_target_velocity(0)
-                    time.sleep(0.5)
-                    
-                    # Reverse movement (1 second)
-                    pump.set_target_velocity(-test_velocity)
-                    time.sleep(1.0)
-                    
-                    # Stop
-                    pump.set_target_velocity(0)
-                    
-                    logger.info(f"Pump {pump_name} test movement completed successfully")
-                except Exception as test_error:
-                    logger.warning(f"Pump {pump_name} test movement failed: {test_error}. Continuing anyway...")
+                # Test movement (matching bioreactor_v2: high speed test for 3 seconds)
+                tic.set_target_velocity(2000000)
+                time.sleep(3.0)
+                tic.set_target_velocity(0)
+                tic.deenergize()
                 
                 # Store pump object and config
-                pumps[pump_name] = pump
-                pump_configs[pump_name] = {
+                pumps[name] = tic
+                pump_configs[name] = {
                     'serial': serial,
                     'step_mode': step_mode,
                     'current_limit': current_limit,
+                    'direction': direction,
                 }
+                pump_direction[name] = direction
                 
-                logger.info(f"Pump {pump_name} initialized (serial: {serial})")
+                logger.info(f"Pump {name} initialized (serial {serial}, direction {direction}).")
                 
             except Exception as e:
-                logger.error(f"Failed to initialize pump {pump_name} (serial: {serial}): {e}")
+                logger.error(f"Failed to initialize pump {name} (serial: {serial}): {e}")
                 continue
         
         if not pumps:
@@ -695,9 +679,10 @@ def init_pumps(bioreactor, config):
             logger.error(error_msg)
             return {'initialized': False, 'error': error_msg}
         
-        # Store on bioreactor instance
+        # Store on bioreactor instance (matching bioreactor_v2 structure)
         bioreactor.pumps = pumps
         bioreactor.pump_configs = pump_configs
+        bioreactor.pump_direction = pump_direction
         
         logger.info(f"Pumps initialized: {len(pumps)} pump(s) - {list(pumps.keys())}")
         

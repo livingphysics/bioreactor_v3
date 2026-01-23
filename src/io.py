@@ -960,101 +960,79 @@ def read_co2(bioreactor) -> Optional[int]:
         return None
 
 
-def set_pump_rate(bioreactor, pump_name: str, rate_ml_per_sec: float, forward: bool = True) -> bool:
+def change_pump(bioreactor, pump_name: str, ml_per_sec: float) -> None:
     """
-    Set pump flow rate in ml/sec.
+    Change pump flow rate in ml/sec.
     
-    Converts ml/sec to steps/sec using a simple conversion factor.
-    Note: This is a simplified version without calibration. For accurate flow rates,
-    you may need to calibrate your pumps and adjust the conversion factor.
+    Follows the bioreactor_v2 change_pump pattern but without calibration.
+    Uses a simple linear conversion from ml/sec to steps/sec.
     
     Args:
         bioreactor: Bioreactor instance
         pump_name: Name of the pump (e.g., 'inflow', 'outflow')
-        rate_ml_per_sec: Desired flow rate in ml/sec (>= 0)
-        forward: If True, forward direction; if False, reverse direction
+        ml_per_sec: Desired flow rate in ml/sec (>= 0)
         
-    Returns:
-        bool: True if successful, False otherwise
+    Raises:
+        ValueError: If pump not found, ml_per_sec is negative, or other validation errors
     """
     if not bioreactor.is_component_initialized('pumps'):
-        bioreactor.logger.warning("Pumps not initialized")
-        return False
+        return
     
     if not hasattr(bioreactor, 'pumps') or pump_name not in bioreactor.pumps:
-        bioreactor.logger.warning(f"Pump '{pump_name}' not found. Available: {list(bioreactor.pumps.keys()) if hasattr(bioreactor, 'pumps') else 'none'}")
-        return False
+        raise ValueError(f"No pump named '{pump_name}' configured")
+    
+    if ml_per_sec < 0:
+        raise ValueError("ml_per_sec must be positive")
+    
+    # Get pump direction from config (default to 'forward' if not specified)
+    pump_cfg = bioreactor.pump_configs.get(pump_name, {})
+    direction = pump_cfg.get('direction', 'forward')
+    
+    if direction not in ('forward', 'reverse'):
+        raise ValueError(f"Pump {pump_name} has invalid direction configuration: {direction}")
+    
+    # Simple conversion: ml/sec to steps/sec (without calibration)
+    # In bioreactor_v2, this would be: steps_per_sec = 8*int((ml_per_sec - intercept) / gradient)
+    # For now, use a simple linear conversion without intercept
+    STEPS_PER_ML = 1000.0  # TODO: Calibrate this value for your pumps
+    steps_per_sec = 8 * int(ml_per_sec * STEPS_PER_ML / 8)  # Match bioreactor_v2 pattern: 8*int(...)
+    
+    # Set velocity sign: positive if direction is 'forward', negative if 'reverse'
+    velocity = steps_per_sec if direction == 'forward' else -steps_per_sec
     
     try:
         pump = bioreactor.pumps[pump_name]
-        pump_cfg = bioreactor.pump_configs.get(pump_name, {})
-        step_mode = pump_cfg.get('step_mode', 3)
-        
-        # Simple conversion: ml/sec to steps/sec
-        # This is a placeholder - you may need to calibrate your pumps
-        # Typical conversion might be: steps_per_ml = 1000 (example value)
-        # To calibrate: measure actual flow rate at different step rates and fit a line
-        STEPS_PER_ML = 1000.0  # TODO: Calibrate this value for your pumps
-        
-        # Convert ml/sec to steps/sec
-        rate_steps_per_sec = rate_ml_per_sec * STEPS_PER_ML
-        
-        # Calculate velocity (pulses/sec) based on step mode
-        # Step mode 3 means 1/8 microstepping, so steps_per_pulse = 0.5^3 = 0.125
-        steps_per_pulse = 0.5 ** step_mode
-        velocity = int(rate_steps_per_sec / steps_per_pulse)
-        
-        # Apply direction: negative velocity for reverse
-        if not forward:
-            velocity = -velocity
-        
-        # Set target velocity
-        pump.set_target_velocity(velocity)
-        
-        direction_str = "forward" if forward else "reverse"
-        bioreactor.logger.info(
-            f"Pump {pump_name} set to {rate_ml_per_sec:.4f} ml/sec {direction_str} "
-            f"({rate_steps_per_sec:.1f} steps/sec, velocity={velocity})"
-        )
-        return True
-        
+        if velocity == 0:
+            pump.deenergize()
+            bioreactor.logger.info(f"Set pump {pump_name} to de-energized (0 ml/sec).")
+        else:
+            pump.energize()
+            pump.exit_safe_start()
+            time.sleep(0.01)  # Small delay after exit_safe_start (matching bioreactor_v2)
+            pump.set_target_velocity(velocity)
+            bioreactor.logger.info(
+                f"Set pump {pump_name} to {ml_per_sec:.4f} ml/sec "
+                f"(velocity {velocity}, direction {direction})."
+            )
     except Exception as e:
-        bioreactor.logger.error(f"Error setting pump {pump_name} rate: {e}")
-        return False
+        bioreactor.logger.error(f"Error setting velocity for '{pump_name}': {e}")
+        raise
 
 
-def stop_pump(bioreactor, pump_name: str) -> bool:
+def stop_pump(bioreactor, pump_name: str) -> None:
     """
-    Stop a pump (set velocity to 0).
+    Stop a pump by setting flow rate to 0.
     
     Args:
         bioreactor: Bioreactor instance
         pump_name: Name of the pump to stop
-        
-    Returns:
-        bool: True if successful, False otherwise
     """
-    if not bioreactor.is_component_initialized('pumps'):
-        bioreactor.logger.warning("Pumps not initialized")
-        return False
-    
-    if not hasattr(bioreactor, 'pumps') or pump_name not in bioreactor.pumps:
-        bioreactor.logger.warning(f"Pump '{pump_name}' not found")
-        return False
-    
-    try:
-        pump = bioreactor.pumps[pump_name]
-        pump.set_target_velocity(0)
-        bioreactor.logger.info(f"Pump {pump_name} stopped")
-        return True
-    except Exception as e:
-        bioreactor.logger.error(f"Error stopping pump {pump_name}: {e}")
-        return False
+    change_pump(bioreactor, pump_name, 0.0)
 
 
 def stop_all_pumps(bioreactor) -> None:
     """
-    Stop all pumps.
+    Stop all pumps by setting their flow rates to 0.
     
     Args:
         bioreactor: Bioreactor instance
@@ -1067,32 +1045,6 @@ def stop_all_pumps(bioreactor) -> None:
     
     for pump_name in bioreactor.pumps.keys():
         try:
-            stop_pump(bioreactor, pump_name)
+            change_pump(bioreactor, pump_name, 0.0)
         except Exception as e:
             bioreactor.logger.error(f"Error stopping pump {pump_name}: {e}")
-
-
-def set_pump_direction(bioreactor, pump_name: str, forward: bool = True) -> bool:
-    """
-    Set pump direction by setting velocity sign.
-    Note: This is a simplified approach. For pumps with hardware direction control,
-    you may need additional configuration.
-    
-    Args:
-        bioreactor: Bioreactor instance
-        pump_name: Name of the pump
-        forward: If True, forward direction; if False, reverse direction
-        
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    # Get current rate and apply direction
-    # This is a simplified version - you may need to track current rates
-    # For now, we'll just log the direction change
-    if forward:
-        bioreactor.logger.info(f"Pump {pump_name} direction set to forward")
-    else:
-        bioreactor.logger.info(f"Pump {pump_name} direction set to reverse")
-        # Note: To actually reverse, you'd need to set negative velocity
-        # This would require tracking the current rate
-    return True

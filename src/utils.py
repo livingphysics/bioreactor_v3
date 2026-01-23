@@ -703,7 +703,7 @@ def balanced_flow(bioreactor, pump_name: str, ml_per_sec: float, elapsed: Option
         ml_per_sec: Desired flow rate in ml/sec (>= 0)
         elapsed: Elapsed time (unused, for compatibility with job functions)
     """
-    from .io import set_pump_rate
+    from .io import change_pump
     
     if not bioreactor.is_component_initialized('pumps'):
         bioreactor.logger.warning("Pumps not initialized; cannot set balanced flow")
@@ -733,7 +733,10 @@ def balanced_flow(bioreactor, pump_name: str, ml_per_sec: float, elapsed: Option
                 f"Cannot determine converse pump for '{pump_name}'. "
                 f"Setting only the specified pump. Available pumps: {list(bioreactor.pumps.keys())}"
             )
-            set_pump_rate(bioreactor, pump_name, ml_per_sec)
+            try:
+                change_pump(bioreactor, pump_name, ml_per_sec)
+            except Exception as e:
+                bioreactor.logger.error(f"Error setting pump {pump_name}: {e}")
             return
     
     # Check if both pumps exist
@@ -746,21 +749,21 @@ def balanced_flow(bioreactor, pump_name: str, ml_per_sec: float, elapsed: Option
             f"Converse pump '{converse_name}' not found. "
             f"Setting only '{pump_name}'. Available pumps: {list(bioreactor.pumps.keys())}"
         )
-        set_pump_rate(bioreactor, pump_name, ml_per_sec)
+        try:
+            change_pump(bioreactor, pump_name, ml_per_sec)
+        except Exception as e:
+            bioreactor.logger.error(f"Error setting pump {pump_name}: {e}")
         return
     
     # Set both pumps to the same rate
-    success1 = set_pump_rate(bioreactor, pump_name, ml_per_sec)
-    success2 = set_pump_rate(bioreactor, converse_name, ml_per_sec)
-    
-    if success1 and success2:
+    try:
+        change_pump(bioreactor, pump_name, ml_per_sec)
+        change_pump(bioreactor, converse_name, ml_per_sec)
         bioreactor.logger.info(
             f"Balanced flow: {pump_name} and {converse_name} set to {ml_per_sec:.4f} ml/sec"
         )
-    else:
-        bioreactor.logger.error(
-            f"Failed to set balanced flow. {pump_name}: {success1}, {converse_name}: {success2}"
-        )
+    except Exception as e:
+        bioreactor.logger.error(f"Failed to set balanced flow: {e}")
 
 
 def chemostat_mode(
