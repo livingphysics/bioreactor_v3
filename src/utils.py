@@ -687,3 +687,134 @@ def ring_light_cycle(
                     f"Ring light turned ON: color={color}, will stay on for {on_time}s"
                 )
 
+
+def balanced_flow(bioreactor, pump_name: str, ml_per_sec: float, elapsed: Optional[float] = None) -> None:
+    """
+    Set balanced flow: for a given pump, set its flow and automatically set the
+    converse pump (inflow/outflow pair) to the same volumetric rate in the opposite direction.
+    
+    This is used for chemostat mode where inflow and outflow must be balanced.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        pump_name: Name of the pump (e.g., 'inflow' or 'outflow')
+                  If pump_name is 'inflow', sets both 'inflow' and 'outflow' to the same rate.
+                  If pump_name is 'outflow', sets both 'outflow' and 'inflow' to the same rate.
+        ml_per_sec: Desired flow rate in ml/sec (>= 0)
+        elapsed: Elapsed time (unused, for compatibility with job functions)
+    """
+    from .io import set_pump_rate
+    
+    if not bioreactor.is_component_initialized('pumps'):
+        bioreactor.logger.warning("Pumps not initialized; cannot set balanced flow")
+        return
+    
+    if not hasattr(bioreactor, 'pumps'):
+        bioreactor.logger.warning("Pumps not available")
+        return
+    
+    # Determine the converse pump name
+    # Default assumption: if 'inflow' exists, 'outflow' is the converse, and vice versa
+    if pump_name == 'inflow':
+        converse_name = 'outflow'
+    elif pump_name == 'outflow':
+        converse_name = 'inflow'
+    else:
+        # Try to infer from name patterns
+        if pump_name.endswith('_in') or pump_name.endswith('_inflow'):
+            # Remove suffix and add outflow suffix
+            base = pump_name.rsplit('_', 1)[0] if '_' in pump_name else pump_name
+            converse_name = f"{base}_out" if not base.endswith('out') else f"{base}_outflow"
+        elif pump_name.endswith('_out') or pump_name.endswith('_outflow'):
+            base = pump_name.rsplit('_', 1)[0] if '_' in pump_name else pump_name
+            converse_name = f"{base}_in" if not base.endswith('in') else f"{base}_inflow"
+        else:
+            bioreactor.logger.warning(
+                f"Cannot determine converse pump for '{pump_name}'. "
+                f"Setting only the specified pump. Available pumps: {list(bioreactor.pumps.keys())}"
+            )
+            set_pump_rate(bioreactor, pump_name, ml_per_sec)
+            return
+    
+    # Check if both pumps exist
+    if pump_name not in bioreactor.pumps:
+        bioreactor.logger.error(f"Pump '{pump_name}' not found. Available: {list(bioreactor.pumps.keys())}")
+        return
+    
+    if converse_name not in bioreactor.pumps:
+        bioreactor.logger.warning(
+            f"Converse pump '{converse_name}' not found. "
+            f"Setting only '{pump_name}'. Available pumps: {list(bioreactor.pumps.keys())}"
+        )
+        set_pump_rate(bioreactor, pump_name, ml_per_sec)
+        return
+    
+    # Set both pumps to the same rate
+    success1 = set_pump_rate(bioreactor, pump_name, ml_per_sec)
+    success2 = set_pump_rate(bioreactor, converse_name, ml_per_sec)
+    
+    if success1 and success2:
+        bioreactor.logger.info(
+            f"Balanced flow: {pump_name} and {converse_name} set to {ml_per_sec:.4f} ml/sec"
+        )
+    else:
+        bioreactor.logger.error(
+            f"Failed to set balanced flow. {pump_name}: {success1}, {converse_name}: {success2}"
+        )
+
+
+def chemostat_mode(
+    bioreactor,
+    pump_name: str,
+    flow_rate_ml_s: float,
+    temp_setpoint: Optional[float] = None,
+    kp: float = 12.0,
+    ki: float = 0.015,
+    kd: float = 0.0,
+    dt: Optional[float] = None,
+    elapsed: Optional[float] = None,
+    sensor_index: int = 0,
+    max_duty: float = 70.0,
+    flow_freq: float = 1.0,
+    temp_freq: float = 1.0,
+) -> None:
+    """
+    Run the bioreactor in chemostat mode:
+    - Balanced flow on the specified pump (inflow and outflow at same rate)
+    - Optional PID temperature control
+    
+    This function is designed to be called as a job in bioreactor.run().
+    It sets balanced flow every flow_freq seconds and optionally controls temperature.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        pump_name: Name of the pump to use for balanced flow (e.g., 'inflow' or 'outflow')
+        flow_rate_ml_s: Inflow/outflow rate (ml/sec)
+        temp_setpoint: Optional desired temperature (°C). If None, only flow control is active.
+        kp: Proportional gain for PID (default: 12.0)
+        ki: Integral gain for PID (default: 0.015)
+        kd: Derivative gain for PID (default: 0.0)
+        dt: Time step for PID loop (s). If None, uses temp_freq.
+        elapsed: Elapsed time since start (s). Used internally.
+        sensor_index: Index of temperature sensor to read (default: 0)
+        max_duty: Maximum duty cycle for peltier (default: 70.0)
+        flow_freq: Frequency (s) for balanced flow updates (default: 1.0)
+        temp_freq: Frequency (s) for temperature PID updates (default: 1.0)
+    """
+    # Set balanced flow
+    balanced_flow(bioreactor, pump_name, flow_rate_ml_s, elapsed)
+    
+    # Optional temperature control
+    if temp_setpoint is not None:
+        temperature_pid_controller(
+            bioreactor,
+            setpoint=temp_setpoint,
+            kp=kp,
+            ki=ki,
+            kd=kd,
+            dt=dt if dt is not None else temp_freq,
+            elapsed=elapsed,
+            sensor_index=sensor_index,
+            max_duty=max_duty,
+        )
+

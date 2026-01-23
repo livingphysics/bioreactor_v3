@@ -599,6 +599,85 @@ def init_co2_sensor(bioreactor, config):
         return {'initialized': False, 'error': str(e)}
 
 
+def init_pumps(bioreactor, config):
+    """
+    Initialize pump controllers using ticUSB protocol.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object with PUMPS configuration
+        
+    Returns:
+        dict: {'initialized': bool, 'pumps': dict of pump objects}
+    """
+    try:
+        from ticlib import TicUSB
+    except ImportError as import_error:
+        logger.error(f"Pump dependencies missing: {import_error}. Install with: pip install ticlib")
+        return {'initialized': False, 'error': str(import_error)}
+    
+    try:
+        # Get pump configuration from config
+        pumps_config = getattr(config, 'PUMPS', {})
+        
+        if not pumps_config:
+            logger.warning("No pumps configured in PUMPS dictionary")
+            return {'initialized': False, 'error': 'No pumps configured'}
+        
+        pumps = {}
+        pump_configs = {}
+        
+        # Initialize each pump
+        for pump_name, pump_cfg in pumps_config.items():
+            serial = pump_cfg.get('serial')
+            step_mode = pump_cfg.get('step_mode', 3)
+            current_limit = pump_cfg.get('current_limit', 32)
+            
+            if not serial:
+                logger.error(f"Pump {pump_name} missing serial number in configuration")
+                continue
+            
+            try:
+                # Initialize TicUSB device
+                pump = TicUSB(serial_number=serial)
+                
+                # Configure pump
+                pump.energize()
+                pump.exit_safe_start()
+                pump.set_step_mode(step_mode)
+                pump.set_current_limit(current_limit)
+                
+                # Store pump object and config
+                pumps[pump_name] = pump
+                pump_configs[pump_name] = {
+                    'serial': serial,
+                    'step_mode': step_mode,
+                    'current_limit': current_limit,
+                }
+                
+                logger.info(f"Pump {pump_name} initialized (serial: {serial})")
+                
+            except Exception as e:
+                logger.error(f"Failed to initialize pump {pump_name} (serial: {serial}): {e}")
+                continue
+        
+        if not pumps:
+            error_msg = "No pumps successfully initialized"
+            logger.error(error_msg)
+            return {'initialized': False, 'error': error_msg}
+        
+        # Store on bioreactor instance
+        bioreactor.pumps = pumps
+        bioreactor.pump_configs = pump_configs
+        
+        logger.info(f"Pumps initialized: {len(pumps)} pump(s) - {list(pumps.keys())}")
+        
+        return {'initialized': True, 'pumps': pumps}
+    except Exception as e:
+        logger.error(f"Pump initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
 # Component registry - maps component names to initialization functions
 COMPONENT_REGISTRY = {
     'i2c': init_i2c,
@@ -610,5 +689,6 @@ COMPONENT_REGISTRY = {
     'optical_density': init_optical_density,
     'eyespy_adc': init_eyespy_adc,
     'co2_sensor': init_co2_sensor,
+    'pumps': init_pumps,
 }
 

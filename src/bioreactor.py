@@ -292,6 +292,14 @@ class Bioreactor():
             except Exception as e:
                 self.logger.error(f"Failed to turn off ring light: {e}")
 
+        # Stop all pumps if initialized
+        if self.is_component_initialized('pumps'):
+            try:
+                from .io import stop_all_pumps
+                stop_all_pumps(self)
+            except Exception as e:
+                self.logger.error(f"Failed to stop pumps: {e}")
+
         self.logger.info("Bioreactor cleanup complete.")
 
     def __enter__(self):
