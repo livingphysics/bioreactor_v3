@@ -34,6 +34,7 @@ config.INIT_COMPONENTS = {
     'optical_density': True,  # Enable optical density sensor (ADS1115)
     'eyespy_adc': False,  # Enable eyespy ADC boards
     'co2_sensor': True,  # Senseair K33 CO2 sensor (I2C)
+    'pumps': True,  # Enable pumps (inflow/outflow)
 }
 
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
@@ -64,6 +65,29 @@ with Bioreactor(config) as reactor:
         except Exception as e:
             reactor.logger.error(f"Ring light initialization check failed: {e}")
 
+    # Pre-job initialization check: pump test (forward and backward)
+    if reactor.is_component_initialized('pumps') and hasattr(reactor, 'pumps'):
+        try:
+            # Use 'inflow' pump if available, otherwise use the first available pump
+            pump_name = 'inflow' if 'inflow' in reactor.pumps else list(reactor.pumps.keys())[0] if reactor.pumps else None
+            
+            if pump_name:
+                reactor.logger.info(f"Pump initialization check: running {pump_name} forward for 2 seconds at 2 ml/s")
+                change_pump(reactor, pump_name, ml_per_sec=2.0, direction='forward')
+                time.sleep(2.0)
+                
+                reactor.logger.info(f"Pump initialization check: running {pump_name} backward for 2 seconds at 2 ml/s")
+                change_pump(reactor, pump_name, ml_per_sec=2.0, direction='reverse')
+                time.sleep(2.0)
+                
+                # Stop the pump
+                change_pump(reactor, pump_name, ml_per_sec=0.0)
+                reactor.logger.info(f"Pump initialization check complete for {pump_name}")
+            else:
+                reactor.logger.warning("No pumps available for initialization check")
+        except Exception as e:
+            reactor.logger.error(f"Pump initialization check failed: {e}")
+
     # Start scheduled jobs
     # Format: (function, frequency_seconds, duration)
     # frequency: time between calls in seconds, or True for continuous
@@ -79,6 +103,11 @@ with Bioreactor(config) as reactor:
         # Ring light cycle - turns on at (50,50,50) for 60s, then off for 60s, repeating
         # Check every 1 second to update state
         (partial(ring_light_cycle, color=(100, 100, 100), on_time=43200.0, off_time=43200.0), 1, True),
+        
+        # Balanced flow - maintains balanced inflow/outflow for chemostat mode
+        # Sets both inflow and outflow pumps to the same flow rate (2 ml/s)
+        # Run every 10 seconds to maintain flow rate
+        (partial(balanced_flow, pump_name='inflow', ml_per_sec=2.0), 10, True),
 
     ]
     

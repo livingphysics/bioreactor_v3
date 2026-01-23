@@ -599,6 +599,101 @@ def init_co2_sensor(bioreactor, config):
         return {'initialized': False, 'error': str(e)}
 
 
+def init_pumps(bioreactor, config):
+    """
+    Initialize pump controllers using ticUSB protocol.
+    Follows the bioreactor_v2 initialization pattern.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object with PUMPS configuration
+        
+    Returns:
+        dict: {'initialized': bool, 'pumps': dict of pump objects}
+    """
+    try:
+        from ticlib import TicUSB
+    except ImportError as import_error:
+        logger.error(f"Pump dependencies missing: {import_error}. Install with: pip install ticlib")
+        return {'initialized': False, 'error': str(import_error)}
+    
+    try:
+        # Get pump configuration from config
+        pumps_config = getattr(config, 'PUMPS', {})
+        
+        if not pumps_config:
+            logger.warning("No pumps configured in PUMPS dictionary")
+            return {'initialized': False, 'error': 'No pumps configured'}
+        
+        pumps = {}
+        pump_configs = {}
+        pump_direction = {}
+        
+        # Initialize each pump (following bioreactor_v2 pattern)
+        for name, settings in pumps_config.items():
+            serial = settings.get('serial')
+            direction = settings.get('direction', 'forward')
+            step_mode = settings.get('step_mode', 3)
+            current_limit = settings.get('current_limit', 32)
+            
+            if not serial:
+                logger.error(f"Pump {name} missing serial number in configuration")
+                continue
+            
+            # Validate direction (matching bioreactor_v2)
+            if direction not in ('forward', 'reverse'):
+                raise ValueError(f"Pump {name} must have direction set to 'forward' or 'reverse'")
+            
+            try:
+                # Initialize TicUSB device (following bioreactor_v2 pattern)
+                tic = TicUSB(serial_number=serial)
+                tic.energize()
+                tic.exit_safe_start()
+                tic.set_step_mode(step_mode)
+                tic.set_current_limit(current_limit)
+                
+                # Test movement (matching bioreactor_v2: high speed test for 3 seconds)
+                tic.set_target_velocity(2000000)
+                time.sleep(3.0)
+                tic.set_target_velocity(0)
+                tic.deenergize()
+                
+                # Store pump object and config
+                pumps[name] = tic
+                steps_per_ml = settings.get('steps_per_ml', 10000000.0)  # Get per-pump calibration
+                pump_configs[name] = {
+                    'serial': serial,
+                    'step_mode': step_mode,
+                    'current_limit': current_limit,
+                    'direction': direction,
+                    'steps_per_ml': steps_per_ml,
+                }
+                pump_direction[name] = direction
+                
+                logger.info(f"Pump {name} initialized (serial {serial}, direction {direction}).")
+                
+            except Exception as e:
+                logger.error(f"Failed to initialize pump {name} (serial: {serial}): {e}")
+                continue
+        
+        if not pumps:
+            error_msg = "No pumps successfully initialized"
+            logger.error(error_msg)
+            return {'initialized': False, 'error': error_msg}
+        
+        # Store on bioreactor instance (matching bioreactor_v2 structure)
+        bioreactor.pumps = pumps
+        bioreactor.pump_configs = pump_configs
+        bioreactor.pump_direction = pump_direction
+        
+        logger.info(f"Pumps initialized: {len(pumps)} pump(s) - {list(pumps.keys())}")
+        
+        return {'initialized': True, 'pumps': pumps}
+    except Exception as e:
+        logger.error(f"Pump initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
 # Component registry - maps component names to initialization functions
 COMPONENT_REGISTRY = {
     'i2c': init_i2c,
@@ -610,5 +705,6 @@ COMPONENT_REGISTRY = {
     'optical_density': init_optical_density,
     'eyespy_adc': init_eyespy_adc,
     'co2_sensor': init_co2_sensor,
+    'pumps': init_pumps,
 }
 
