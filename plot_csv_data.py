@@ -41,6 +41,7 @@ import queue
 import matplotlib
 matplotlib.use('TkAgg')  # Use TkAgg backend explicitly
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import numpy as np
 
 # Try to import paramiko for SSH, fall back to subprocess if not available
@@ -291,6 +292,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     last_row_count = 0
     fig = None
     axes = None
+    twin_axes = {}  # Store twin axes by (source_idx, group_idx) to reuse them
     cache_dir = getattr(plot_config, 'CACHE_DIR', '/tmp/plot_csv_cache') if use_remote else None
     update_queue = queue.Queue()  # Queue for thread-safe updates
     update_flag = threading.Event()  # Flag to signal updates from background thread
@@ -383,7 +385,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     
     def update_plot(data=None, headers=None):
         """Update the plot with latest data. Must be called from main thread."""
-        nonlocal fig, axes
+        nonlocal fig, axes, twin_axes
         
         # If data/headers not provided, read them (for initial call)
         if data is None or headers is None:
@@ -549,6 +551,13 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 # axes is now guaranteed to be 2D: axes[row][col]
                 ax = axes[source_idx][group_idx]
                 
+                # Clear any existing twin axis for this subplot (but keep it for potential reuse)
+                twin_key = (source_idx, group_idx)
+                if twin_key in twin_axes:
+                    old_ax2 = twin_axes[twin_key]
+                    if old_ax2 in ax.figure.axes:
+                        old_ax2.clear()  # Clear the twin axis but don't remove it yet
+                
                 ax.clear()
                 
                 # Set title: source name and data type
@@ -612,22 +621,51 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                                     break
                     
                     # Handle CO2/O2 dual-axis plotting - only create dual axes if both have valid data
+                    ax2 = None
+                    twin_key = (source_idx, group_idx)
                     if has_valid_co2_data and has_valid_o2_data:
                         # Both CO2 and O2 have valid data: use dual axes
                         ax.set_ylabel('CO2 (ppm)', color='b')
                         ax.tick_params(axis='y', labelcolor='b')
-                        ax2 = ax.twinx()
+                        # Create or reuse twin axis
+                        if twin_key not in twin_axes:
+                            ax2 = ax.twinx()
+                            twin_axes[twin_key] = ax2
+                        else:
+                            ax2 = twin_axes[twin_key]
                         ax2.set_ylabel('O2 (%)', color='r')
                         ax2.tick_params(axis='y', labelcolor='r')
+                        # Format O2 axis to show 2 decimal places, not scientific notation
+                        ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                     elif has_valid_co2_data:
                         # Only CO2 has valid data: use primary axis
                         ax.set_ylabel('CO2 (ppm)')
+                        # Remove twin axis if it exists (no longer needed)
+                        if twin_key in twin_axes:
+                            old_ax2 = twin_axes[twin_key]
+                            if old_ax2 in ax.figure.axes:
+                                old_ax2.remove()
+                            del twin_axes[twin_key]
                     elif has_valid_o2_data:
                         # Only O2 has valid data: use primary axis
                         ax.set_ylabel('O2 (%)')
+                        # Format O2 axis to show 2 decimal places, not scientific notation
+                        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
+                        # Remove twin axis if it exists (no longer needed)
+                        if twin_key in twin_axes:
+                            old_ax2 = twin_axes[twin_key]
+                            if old_ax2 in ax.figure.axes:
+                                old_ax2.remove()
+                            del twin_axes[twin_key]
                     else:
                         # Neither has valid data: default to CO2 label
                         ax.set_ylabel('Gases')
+                        # Remove twin axis if it exists (no longer needed)
+                        if twin_key in twin_axes:
+                            old_ax2 = twin_axes[twin_key]
+                            if old_ax2 in ax.figure.axes:
+                                old_ax2.remove()
+                            del twin_axes[twin_key]
                 
                 # Plot CO2 columns on primary axis
                 for col_idx, col in enumerate(co2_columns):
