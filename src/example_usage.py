@@ -24,18 +24,6 @@ from src.io import *
 config = Config()
 
 # Override some settings in the configuration
-config.INIT_COMPONENTS = {
-    'i2c': True,
-    'temp_sensor': True,
-    'peltier_driver': True,
-    'stirrer': True,
-    'led': True,  # Enable LED PWM control
-    'ring_light': True,  # Enable ring light (neopixel)
-    'optical_density': True,  # Enable optical density sensor (ADS1115)
-    'eyespy_adc': False,  # Enable eyespy ADC boards
-    'co2_sensor': True,  # Senseair K33 CO2 sensor (I2C)
-    'pumps': True,  # Enable pumps (inflow/outflow)
-}
 
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
 config.LOG_FILE = 'bioreactor.log'  # Also log to file
