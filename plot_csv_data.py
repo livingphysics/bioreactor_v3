@@ -258,7 +258,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     Groups columns by type:
     - OD and Eyespy voltage readings (columns containing 'OD', 'od', 'eyespy', or 'Eyespy') -> one subplot
     - Temperature (columns containing 'temp' or 'temperature') -> one subplot
-    - CO2 (columns containing 'co2' or 'CO2') -> one subplot
+    - CO2 and O2 (columns containing 'co2', 'CO2', 'o2', or 'O2') -> one subplot with dual y-axes
     - Time -> x-axis for all
     
     Note: Only voltage columns are plotted (raw ADC values are excluded).
@@ -321,6 +321,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             elif 'co2' in header_lower:
                 # Group CO2 columns
                 groups['CO2'].append(header)
+            elif 'o2' in header_lower and 'co2' not in header_lower:
+                # Group O2 columns (but not if it's part of a CO2 column name)
+                groups['CO2'].append(header)  # Add to CO2 group for dual-axis plotting
         
         # Remove empty groups
         return {k: v for k, v in groups.items() if v}
@@ -524,16 +527,34 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 ax.set_xlabel(xlabel)
                 ax.grid(True, alpha=0.3)
                 
-                # Determine ylabel based on group
+                # Separate CO2 and O2 columns for dual-axis plotting
+                co2_columns = [col for col in columns if 'co2' in col.lower() and 'o2' not in col.lower()]
+                o2_columns = [col for col in columns if 'o2' in col.lower() and 'co2' not in col.lower()]
+                
+                # Determine ylabel and create secondary axis if needed
+                ax2 = None
                 if group_name == 'OD':
                     ax.set_ylabel('Voltage (V)')  # OD and Eyespy both use this
                 elif group_name == 'Temperature':
                     ax.set_ylabel('Temperature (°C)')
                 elif group_name == 'CO2':
-                    ax.set_ylabel('CO2 (ppm)')
+                    # Handle CO2/O2 dual-axis plotting
+                    if co2_columns and o2_columns:
+                        # Both CO2 and O2: use dual axes
+                        ax.set_ylabel('CO2 (ppm)', color='b')
+                        ax.tick_params(axis='y', labelcolor='b')
+                        ax2 = ax.twinx()
+                        ax2.set_ylabel('O2 (%)', color='r')
+                        ax2.tick_params(axis='y', labelcolor='r')
+                    elif co2_columns:
+                        # Only CO2: use primary axis
+                        ax.set_ylabel('CO2 (ppm)')
+                    elif o2_columns:
+                        # Only O2: use primary axis
+                        ax.set_ylabel('O2 (%)')
                 
-                # Plot each column in the group for this source
-                for col_idx, col in enumerate(columns):
+                # Plot CO2 columns on primary axis
+                for col_idx, col in enumerate(co2_columns):
                     if col not in data:
                         continue
                     source_values = [data[col][i] for i in source_indices]
@@ -541,16 +562,43 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         continue
                     
                     color = colors[col_idx % len(colors)]
-                    marker = markers[col_idx % len(markers)] if len(columns) > 1 else None
+                    marker = markers[col_idx % len(markers)] if len(co2_columns) > 1 else None
                     style = f'{color[0]}{marker}-' if marker else color
                     
                     label = col
                     ax.plot(source_times, source_values, style, linewidth=2, 
                            label=label, markersize=4 if marker else None)
                 
-                # Show legend if we have multiple columns
-                if len(columns) > 1:
-                    ax.legend(fontsize=9)
+                # Plot O2 columns (on secondary axis if both exist, otherwise primary)
+                if o2_columns:
+                    target_ax = ax2 if ax2 is not None else ax
+                    for col_idx, col in enumerate(o2_columns):
+                        if col not in data:
+                            continue
+                        source_values = [data[col][i] for i in source_indices]
+                        if not source_values:
+                            continue
+                        
+                        # Use red colors for O2
+                        o2_colors = ['r', 'darkred', 'crimson', 'salmon']
+                        color = o2_colors[col_idx % len(o2_colors)]
+                        marker = markers[col_idx % len(markers)] if len(o2_columns) > 1 else None
+                        style = f'{color}{marker}-' if marker else f'{color}-'
+                        
+                        label = col
+                        target_ax.plot(source_times, source_values, style, linewidth=2, 
+                               label=label, markersize=4 if marker else None)
+                
+                # Show legend if we have multiple columns (combine CO2 and O2 legends)
+                all_columns = co2_columns + o2_columns
+                if len(all_columns) > 1:
+                    # Combine legends from both axes if dual-axis, otherwise use single axis
+                    if ax2 is not None:
+                        lines1, labels1 = ax.get_legend_handles_labels()
+                        lines2, labels2 = ax2.get_legend_handles_labels()
+                        ax.legend(lines1 + lines2, labels1 + labels2, fontsize=9, loc='best')
+                    else:
+                        ax.legend(fontsize=9)
         
         plt.tight_layout()
         plt.draw()
