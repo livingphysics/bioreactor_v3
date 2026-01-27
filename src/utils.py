@@ -8,6 +8,7 @@ import time
 import logging
 from typing import Union, Optional
 from collections import deque
+from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -73,7 +74,7 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
             _plot_data[plot_key] = deque(maxlen=PLOT_DATA_MAXLEN)
     
     # Read sensors
-    sensor_data = {'time': elapsed}
+    sensor_data = {'elapsed_time': elapsed}
     
     # Read Temperature
     temp_value = get_temperature(bioreactor, sensor_index=0)
@@ -124,7 +125,12 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
     
     # Write to CSV
     if hasattr(bioreactor, 'writer') and bioreactor.writer:
-        csv_row = {'time': elapsed}
+        # Get current timestamp
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        csv_row = {
+            'time': current_time,  # Actual timestamp
+            'elapsed_time': elapsed  # Elapsed seconds since start
+        }
         
         # Add temperature with config label if available
         if config and hasattr(config, 'SENSOR_LABELS'):
@@ -233,7 +239,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         dict: Dictionary with all sensor readings
     """
     # Import IO functions
-    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc, read_co2
+    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc, read_co2, read_o2
     
     # Get elapsed time
     if elapsed is None:
@@ -253,14 +259,15 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         od_channel_names = list(bioreactor.od_channels.keys())
     
     # Read sensors
-    sensor_data = {'time': elapsed}
+    sensor_data = {'elapsed_time': elapsed}
     
-    # Read Temperature
-    temp_value = get_temperature(bioreactor, sensor_index=0)
-    if not np.isnan(temp_value):
-        sensor_data['temperature'] = temp_value
-    else:
-        sensor_data['temperature'] = float('nan')
+    # Read Temperature only if temp_sensor is initialized
+    if bioreactor.is_component_initialized('temp_sensor'):
+        temp_value = get_temperature(bioreactor, sensor_index=0)
+        if not np.isnan(temp_value):
+            sensor_data['temperature'] = temp_value
+        else:
+            sensor_data['temperature'] = float('nan')
     
     # Read OD channels and/or eyespy with LED on if LED is initialized
     # measure_od() handles turning LED on, taking readings, and turning LED off
@@ -356,33 +363,50 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
     else:
         sensor_data['co2'] = float('nan')
     
+    # Read O2 sensor if initialized
+    if bioreactor.is_component_initialized('o2_sensor'):
+        o2_value = read_o2(bioreactor)
+        if o2_value is not None:
+            sensor_data['o2'] = o2_value
+        else:
+            sensor_data['o2'] = float('nan')
+    else:
+        sensor_data['o2'] = float('nan')
+    
     # Write to CSV
     if hasattr(bioreactor, 'writer') and bioreactor.writer:
-        csv_row = {'time': elapsed}
+        # Get current timestamp
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        csv_row = {
+            'time': current_time,  # Actual timestamp
+            'elapsed_time': elapsed  # Elapsed seconds since start
+        }
         
-        # Add temperature with config label if available
-        if config and hasattr(config, 'SENSOR_LABELS'):
-            temp_label = config.SENSOR_LABELS.get('temperature', 'temperature_C')
+        # Add temperature with config label if temp_sensor is initialized
+        if bioreactor.is_component_initialized('temp_sensor') and 'temperature' in sensor_data:
+            if config and hasattr(config, 'SENSOR_LABELS'):
+                temp_label = config.SENSOR_LABELS.get('temperature', 'temperature_C')
+            else:
+                temp_label = 'temperature_C'
             csv_row[temp_label] = sensor_data['temperature']
-        else:
-            csv_row['temperature'] = sensor_data['temperature']
         
-        # Add OD data dynamically using config labels or auto-generate
-        for ch_name in od_channel_names:
-            plot_key = f"od_{ch_name.lower()}"
-            if plot_key in sensor_data:
-                # Try to get label from SENSOR_LABELS first
-                if config and hasattr(config, 'SENSOR_LABELS'):
-                    # Try multiple possible label keys
-                    label = (config.SENSOR_LABELS.get(plot_key) or 
-                            config.SENSOR_LABELS.get(f"od_{ch_name}") or
-                            config.SENSOR_LABELS.get(f"od_{ch_name.lower()}") or
-                            config.SENSOR_LABELS.get(f"od_{ch_name.upper()}") or
-                            f"OD_{ch_name}_V")
-                else:
-                    # Auto-generate label
-                    label = f"OD_{ch_name}_V"
-                csv_row[label] = sensor_data[plot_key]
+        # Add OD data dynamically using config labels or auto-generate (only if optical_density is initialized)
+        if bioreactor.is_component_initialized('optical_density'):
+            for ch_name in od_channel_names:
+                plot_key = f"od_{ch_name.lower()}"
+                if plot_key in sensor_data:
+                    # Try to get label from SENSOR_LABELS first
+                    if config and hasattr(config, 'SENSOR_LABELS'):
+                        # Try multiple possible label keys
+                        label = (config.SENSOR_LABELS.get(plot_key) or 
+                                config.SENSOR_LABELS.get(f"od_{ch_name}") or
+                                config.SENSOR_LABELS.get(f"od_{ch_name.lower()}") or
+                                config.SENSOR_LABELS.get(f"od_{ch_name.upper()}") or
+                                f"OD_{ch_name}_V")
+                    else:
+                        # Auto-generate label
+                        label = f"OD_{ch_name}_V"
+                    csv_row[label] = sensor_data[plot_key]
         
         # Add eyespy ADC data dynamically
         if bioreactor.is_component_initialized('eyespy_adc') and hasattr(bioreactor, 'eyespy_boards'):
@@ -414,10 +438,19 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         if bioreactor.is_component_initialized('co2_sensor') and 'co2' in sensor_data:
             # Get label from config or auto-generate
             if config and hasattr(config, 'SENSOR_LABELS'):
-                co2_label = config.SENSOR_LABELS.get('co2', 'CO2_ppm_x10')
+                co2_label = config.SENSOR_LABELS.get('co2', 'CO2_ppm')
             else:
-                co2_label = 'CO2_ppm_x10'
+                co2_label = 'CO2_ppm'
             csv_row[co2_label] = sensor_data['co2']
+        
+        # Add O2 data if sensor is initialized
+        if bioreactor.is_component_initialized('o2_sensor') and 'o2' in sensor_data:
+            # Get label from config or auto-generate
+            if config and hasattr(config, 'SENSOR_LABELS'):
+                o2_label = config.SENSOR_LABELS.get('o2', 'O2_percent')
+            else:
+                o2_label = 'O2_percent'
+            csv_row[o2_label] = sensor_data['o2']
         
         try:
             # Only write fields that exist in fieldnames to avoid errors
@@ -431,12 +464,23 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         except Exception as e:
             bioreactor.logger.error(f"Error writing to CSV: {e}")
     
-    # Build log message dynamically
-    log_parts = [f"Temp: {sensor_data.get('temperature', 'N/A'):.2f}°C"]
-    for ch_name in od_channel_names:
-        plot_key = f"od_{ch_name.lower()}"
-        if plot_key in sensor_data:
-            log_parts.append(f"OD {ch_name}: {sensor_data.get(plot_key, 'N/A'):.4f}V")
+    # Build log message dynamically (only include initialized sensors)
+    log_parts = []
+    
+    # Add temperature to log only if temp_sensor is initialized
+    if bioreactor.is_component_initialized('temp_sensor') and 'temperature' in sensor_data:
+        temp_value = sensor_data.get('temperature', float('nan'))
+        if not np.isnan(temp_value):
+            log_parts.append(f"Temp: {temp_value:.2f}°C")
+    
+    # Add OD channels to log only if optical_density is initialized
+    if bioreactor.is_component_initialized('optical_density'):
+        for ch_name in od_channel_names:
+            plot_key = f"od_{ch_name.lower()}"
+            if plot_key in sensor_data:
+                od_value = sensor_data.get(plot_key, float('nan'))
+                if not np.isnan(od_value):
+                    log_parts.append(f"OD {ch_name}: {od_value:.4f}V")
     
     # Add eyespy readings to log
     if bioreactor.is_component_initialized('eyespy_adc') and hasattr(bioreactor, 'eyespy_boards'):
@@ -453,6 +497,12 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         if not np.isnan(co2_value):
             # Value is already in PPM (multiplied by 10 in read_co2)
             log_parts.append(f"CO2: {co2_value:.0f} ppm")
+    
+    # Add O2 reading to log
+    if bioreactor.is_component_initialized('o2_sensor') and 'o2' in sensor_data:
+        o2_value = sensor_data['o2']
+        if not np.isnan(o2_value):
+            log_parts.append(f"O2: {o2_value:.2f}%")
     
     bioreactor.logger.info(f"Sensor readings - {', '.join(log_parts)}")
     

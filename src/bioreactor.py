@@ -106,18 +106,62 @@ class Bioreactor():
                     if voltage_key not in config.SENSOR_LABELS:
                         config.SENSOR_LABELS[voltage_key] = f"Eyespy_{board_name}_V"
             
+            # Auto-populate temperature sensor label if temp_sensor is enabled
+            # Also remove it if disabled (to clean up any leftover entries)
+            temp_enabled = init_components.get('temp_sensor', False)
+            if temp_enabled:
+                if 'temperature' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['temperature'] = 'temperature_C'
+            else:
+                # Remove temperature label if sensor is disabled
+                config.SENSOR_LABELS.pop('temperature', None)
+            
             # Auto-populate CO2 sensor label if co2_sensor is enabled
+            # Also remove it if disabled (to clean up any leftover entries)
             co2_enabled = init_components.get('co2_sensor', False)
             if co2_enabled:
                 if 'co2' not in config.SENSOR_LABELS:
-                    config.SENSOR_LABELS['co2'] = 'CO2_ppm_x10'
+                    config.SENSOR_LABELS['co2'] = 'CO2_ppm'
+            else:
+                # Remove CO2 label if sensor is disabled
+                config.SENSOR_LABELS.pop('co2', None)
+            
+            # Auto-populate O2 sensor label if o2_sensor is enabled
+            # Also remove it if disabled (to clean up any leftover entries)
+            o2_enabled = init_components.get('o2_sensor', False)
+            if o2_enabled:
+                if 'o2' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['o2'] = 'O2_percent'
+            else:
+                # Remove O2 label if sensor is disabled
+                config.SENSOR_LABELS.pop('o2', None)
             
             # Build fieldnames from SENSOR_LABELS
-            sensor_keys = list(config.SENSOR_LABELS.keys())
-            fieldnames = ['time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]
+            # Include both 'time' (timestamp) and 'elapsed_time' (elapsed seconds)
+            # Only include sensor labels for components that are actually initialized
+            sensor_keys = []
+            for key in config.SENSOR_LABELS.keys():
+                # Map sensor label keys to component names
+                component_name = None
+                if key == 'temperature':
+                    component_name = 'temp_sensor'
+                elif key == 'co2':
+                    component_name = 'co2_sensor'
+                elif key == 'o2':
+                    component_name = 'o2_sensor'
+                elif key.startswith('od_'):
+                    component_name = 'optical_density'
+                elif key.startswith('eyespy_'):
+                    component_name = 'eyespy_adc'
+                
+                # Only include if component is initialized (or if we can't determine the component)
+                if component_name is None or init_components.get(component_name, False):
+                    sensor_keys.append(key)
+            
+            fieldnames = ['time', 'elapsed_time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]
         else:
             # Default fieldnames if no config provided
-            fieldnames = ['time']
+            fieldnames = ['time', 'elapsed_time']
         
         self.fieldnames = fieldnames
         

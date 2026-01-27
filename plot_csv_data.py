@@ -41,6 +41,7 @@ import queue
 import matplotlib
 matplotlib.use('TkAgg')  # Use TkAgg backend explicitly
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import numpy as np
 
 # Try to import paramiko for SSH, fall back to subprocess if not available
@@ -237,7 +238,7 @@ def combine_csv_files(file_list):
     return all_data, all_headers
 
 
-def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_remote: bool = False):
+def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_remote: bool = False, debug: bool = False):
     """
     Read CSV file(s) and plot data with automatic grouping of similar columns.
     
@@ -258,7 +259,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     Groups columns by type:
     - OD and Eyespy voltage readings (columns containing 'OD', 'od', 'eyespy', or 'Eyespy') -> one subplot
     - Temperature (columns containing 'temp' or 'temperature') -> one subplot
-    - CO2 (columns containing 'co2' or 'CO2') -> one subplot
+    - Gases (CO2 and O2 columns containing 'co2', 'CO2', 'o2', or 'O2') -> one subplot with dual y-axes
     - Time -> x-axis for all
     
     Note: Only voltage columns are plotted (raw ADC values are excluded).
@@ -291,6 +292,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     last_row_count = 0
     fig = None
     axes = None
+    twin_axes = {}  # Store twin axes by (source_idx, group_idx) to reuse them
     cache_dir = getattr(plot_config, 'CACHE_DIR', '/tmp/plot_csv_cache') if use_remote else None
     update_queue = queue.Queue()  # Queue for thread-safe updates
     update_flag = threading.Event()  # Flag to signal updates from background thread
@@ -300,7 +302,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         groups = {
             'OD': [],
             'Temperature': [],
-            'CO2': [],
+            'Gases': [],
             'Time': []
         }
         
@@ -309,7 +311,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             if header.lower() == 'source':
                 continue
             header_lower = header.lower()
-            if header_lower == 'time':
+            if header_lower == 'time' or header_lower == 'elapsed_time':
                 groups['Time'].append(header)
             elif 'od' in header_lower or 'eyespy' in header_lower:
                 # Group both OD and eyespy voltage columns together
@@ -319,8 +321,11 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             elif 'temp' in header_lower:
                 groups['Temperature'].append(header)
             elif 'co2' in header_lower:
-                # Group CO2 columns
-                groups['CO2'].append(header)
+                # Group CO2 columns (e.g., CO2_ppm)
+                groups['Gases'].append(header)
+            elif 'o2' in header_lower and 'co2' not in header_lower:
+                # Group O2 columns (e.g., O2_percent) - add to Gases group for dual-axis plotting
+                groups['Gases'].append(header)
         
         # Remove empty groups
         return {k: v for k, v in groups.items() if v}
@@ -380,7 +385,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     
     def update_plot(data=None, headers=None):
         """Update the plot with latest data. Must be called from main thread."""
-        nonlocal fig, axes
+        nonlocal fig, axes, twin_axes
         
         # If data/headers not provided, read them (for initial call)
         if data is None or headers is None:
@@ -389,17 +394,31 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 return
             data, headers = result
         
-        # Group columns
+        # Group columns (this automatically removes empty groups)
         groups = group_columns(headers)
-        print(groups)
         if not groups:
             print("Warning: No recognizable column groups found")
             return
         
-        # Determine time column
+        # Debug: show which groups were found (after filtering empty ones)
+        if debug:
+            print(f"DEBUG: Groups found after filtering: {list(groups.keys())}")
+        
+        # Check if we have a Time group (required)
+        if 'Time' not in groups or not groups['Time']:
+            print("Warning: No time column found")
+            return
+        
+        # Determine time column (prefer 'elapsed_time' for plotting as it contains elapsed seconds, fall back to time)
         time_col = None
         if 'Time' in groups and groups['Time']:
-            time_col = groups['Time'][0]
+            # Prefer 'elapsed_time' if available (contains elapsed seconds), otherwise use first time column
+            if 'elapsed_time' in groups['Time']:
+                time_col = 'elapsed_time'
+            else:
+                time_col = groups['Time'][0]
+        elif 'elapsed_time' in headers:
+            time_col = 'elapsed_time'
         elif 'time' in headers:
             time_col = 'time'
         else:
@@ -430,15 +449,30 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         else:
             sources = ['Local']  # Single source for local files
         
-        # Get data type groups (excluding Time)
-        data_groups = {k: v for k, v in groups.items() if k != 'Time'}
+        # Get data type groups (excluding Time) - only include non-empty groups
+        data_groups = {k: v for k, v in groups.items() if k != 'Time' and v}  # Ensure groups are non-empty
         num_groups = len(data_groups)
         
         if num_groups == 0:
+            print("Warning: No data groups found (only Time column present)")
             return
         
         # Calculate number of sources (needed for both figure creation and plotting)
         num_sources = len(sources)
+        
+        # Check if figure needs to be recreated (if group structure changed)
+        current_group_names = sorted(data_groups.keys())
+        if fig is not None:
+            # Check if we need to recreate the figure due to structure change
+            # Compare both the number of groups and the actual group names
+            expected_cols = len(current_group_names)
+            last_group_names = getattr(fig, '_last_group_names', None)
+            if (hasattr(fig, '_last_num_groups') and fig._last_num_groups != expected_cols) or \
+               (last_group_names is not None and last_group_names != current_group_names):
+                # Structure changed, close and recreate
+                plt.close(fig)
+                fig = None
+                axes = None
         
         # Create or update figure
         # Layout: Each bioreactor (source) gets a row, each row has subplots for each data type
@@ -459,7 +493,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             
             # Normalize axes to always be a 2D list for consistent access
             # matplotlib's subplots returns different structures depending on dimensions
-            import numpy as np
+            # Note: np is already imported at module level
             
             if num_rows == 1 and num_cols == 1:
                 # Single subplot: axes is a single Axes object
@@ -488,6 +522,10 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             # Show the figure window
             plt.show(block=False)
             plt.pause(0.1)  # Give matplotlib time to display the window
+            
+            # Store the number of groups and group names for change detection
+            fig._last_num_groups = num_groups
+            fig._last_group_names = current_group_names
         
         # Plot each bioreactor (source) in its own row
         colors = ['b-', 'r-', 'g-', 'm-', 'c-', 'y-', 'k-']
@@ -513,6 +551,13 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 # axes is now guaranteed to be 2D: axes[row][col]
                 ax = axes[source_idx][group_idx]
                 
+                # Clear any existing twin axis for this subplot (but keep it for potential reuse)
+                twin_key = (source_idx, group_idx)
+                if twin_key in twin_axes:
+                    old_ax2 = twin_axes[twin_key]
+                    if old_ax2 in ax.figure.axes:
+                        old_ax2.clear()  # Clear the twin axis but don't remove it yet
+                
                 ax.clear()
                 
                 # Set title: source name and data type
@@ -524,33 +569,188 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 ax.set_xlabel(xlabel)
                 ax.grid(True, alpha=0.3)
                 
-                # Determine ylabel based on group
+                # Separate CO2 and O2 columns for dual-axis plotting
+                co2_columns = []
+                o2_columns = []
+                for col in columns:
+                    col_lower = col.lower().strip()
+                    # CO2 column: contains 'co2' and does NOT contain standalone 'o2' (without 'co2' before it)
+                    # This matches: CO2_ppm, co2_ppm, CO2_ppm_x10, etc.
+                    if 'co2' in col_lower:
+                        # Make sure it's not an O2 column that happens to contain 'co2' as part of something else
+                        # If it has 'o2' but 'co2' comes before 'o2', it's a CO2 column
+                        # If it has 'o2' and 'co2' doesn't come before it, skip (shouldn't happen with our naming)
+                        co2_columns.append(col)
+                    # O2 column: contains 'o2' but NOT 'co2'
+                    elif 'o2' in col_lower and 'co2' not in col_lower:
+                        o2_columns.append(col)
+                
+                # Debug: print what columns we found
+                if debug and group_name == 'Gases':
+                    print(f"DEBUG: All columns in Gases group: {columns}")
+                    print(f"DEBUG: CO2 columns found: {co2_columns}")
+                    print(f"DEBUG: O2 columns found: {o2_columns}")
+                
+                # Determine ylabel and create secondary axis if needed
+                ax2 = None
                 if group_name == 'OD':
                     ax.set_ylabel('Voltage (V)')  # OD and Eyespy both use this
                 elif group_name == 'Temperature':
                     ax.set_ylabel('Temperature (°C)')
-                elif group_name == 'CO2':
-                    ax.set_ylabel('CO2 (ppm)')
+                elif group_name == 'Gases':
+                    # Check if we have valid O2 data before deciding on axis setup
+                    has_valid_o2_data = False
+                    if o2_columns:
+                        for col in o2_columns:
+                            if col in data:
+                                source_values = [data[col][i] for i in source_indices]
+                                valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v)]
+                                if valid_indices:
+                                    has_valid_o2_data = True
+                                    break
+                    
+                    # Check if we have valid CO2 data
+                    has_valid_co2_data = False
+                    if co2_columns:
+                        for col in co2_columns:
+                            if col in data:
+                                source_values = [data[col][i] for i in source_indices]
+                                valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v)]
+                                if valid_indices:
+                                    has_valid_co2_data = True
+                                    break
+                    
+                    # Handle CO2/O2 dual-axis plotting - only create dual axes if both have valid data
+                    ax2 = None
+                    twin_key = (source_idx, group_idx)
+                    if has_valid_co2_data and has_valid_o2_data:
+                        # Both CO2 and O2 have valid data: use dual axes
+                        ax.set_ylabel('CO2 (ppm)', color='b')
+                        ax.tick_params(axis='y', labelcolor='b')
+                        # Create or reuse twin axis
+                        if twin_key not in twin_axes:
+                            ax2 = ax.twinx()
+                            twin_axes[twin_key] = ax2
+                        else:
+                            ax2 = twin_axes[twin_key]
+                        ax2.set_ylabel('O2 (%)', color='r')
+                        ax2.yaxis.set_label_position('right')
+                        ax2.tick_params(axis='y', labelcolor='r', which='both', left=False, right=True)
+                        # Format O2 axis to show 2 decimal places, not scientific notation
+                        ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
+                        # Set O2 axis range to 5% to 30% (will be reapplied after plotting)
+                    elif has_valid_co2_data:
+                        # Only CO2 has valid data: use primary axis
+                        ax.set_ylabel('CO2 (ppm)')
+                        # Remove twin axis if it exists (no longer needed)
+                        if twin_key in twin_axes:
+                            old_ax2 = twin_axes[twin_key]
+                            if old_ax2 in ax.figure.axes:
+                                old_ax2.remove()
+                            del twin_axes[twin_key]
+                    elif has_valid_o2_data:
+                        # Only O2 has valid data: use primary axis
+                        ax.set_ylabel('O2 (%)')
+                        # Format O2 axis to show 2 decimal places, not scientific notation
+                        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
+                        # Set O2 axis range to 5% to 30%
+                        ax.set_ylim(5.0, 30.0)
+                        # Remove twin axis if it exists (no longer needed)
+                        if twin_key in twin_axes:
+                            old_ax2 = twin_axes[twin_key]
+                            if old_ax2 in ax.figure.axes:
+                                old_ax2.remove()
+                            del twin_axes[twin_key]
+                    else:
+                        # Neither has valid data: default to CO2 label
+                        ax.set_ylabel('Gases')
+                        # Remove twin axis if it exists (no longer needed)
+                        if twin_key in twin_axes:
+                            old_ax2 = twin_axes[twin_key]
+                            if old_ax2 in ax.figure.axes:
+                                old_ax2.remove()
+                            del twin_axes[twin_key]
                 
-                # Plot each column in the group for this source
-                for col_idx, col in enumerate(columns):
+                # Plot CO2 columns on primary axis
+                for col_idx, col in enumerate(co2_columns):
                     if col not in data:
+                        if debug:
+                            print(f"DEBUG: CO2 column '{col}' not found in data dictionary. Available keys: {list(data.keys())[:10]}")
                         continue
                     source_values = [data[col][i] for i in source_indices]
-                    if not source_values:
+                    # Filter out NaN values for plotting
+                    valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v)]
+                    if not valid_indices:
+                        if debug:
+                            print(f"DEBUG: CO2 column '{col}' has no valid (non-NaN) values")
                         continue
                     
+                    # Use only valid data points
+                    valid_times = [source_times[i] for i in valid_indices]
+                    valid_values = [source_values[i] for i in valid_indices]
+                    
+                    # For CO2_ppm_x10, divide by 10 to get actual ppm for display
+                    if 'ppm_x10' in col.lower() or 'ppm_x' in col.lower():
+                        valid_values = [v / 10.0 for v in valid_values]
+                    
                     color = colors[col_idx % len(colors)]
-                    marker = markers[col_idx % len(markers)] if len(columns) > 1 else None
+                    marker = markers[col_idx % len(markers)] if len(co2_columns) > 1 else None
                     style = f'{color[0]}{marker}-' if marker else color
                     
-                    label = col
-                    ax.plot(source_times, source_values, style, linewidth=2, 
+                    label = col.replace('_ppm_x10', ' (ppm)').replace('_x10', '')
+                    ax.plot(valid_times, valid_values, style, linewidth=2, 
                            label=label, markersize=4 if marker else None)
                 
-                # Show legend if we have multiple columns
-                if len(columns) > 1:
-                    ax.legend(fontsize=9)
+                # Plot O2 columns (on secondary axis if both exist, otherwise primary)
+                if o2_columns:
+                    target_ax = ax2 if ax2 is not None else ax
+                    for col_idx, col in enumerate(o2_columns):
+                        if col not in data:
+                            if debug:
+                                print(f"DEBUG: O2 column '{col}' not found in data dictionary. Available keys: {list(data.keys())[:10]}")
+                            continue
+                        source_values = [data[col][i] for i in source_indices]
+                        # Filter out NaN values for plotting
+                        valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v)]
+                        if not valid_indices:
+                            if debug:
+                                print(f"DEBUG: O2 column '{col}' has no valid (non-NaN) values")
+                            continue
+                        
+                        # Use only valid data points
+                        valid_times = [source_times[i] for i in valid_indices]
+                        valid_values = [source_values[i] for i in valid_indices]
+                        
+                        # Use red colors for O2
+                        o2_colors = ['r', 'darkred', 'crimson', 'salmon']
+                        color = o2_colors[col_idx % len(o2_colors)]
+                        marker = markers[col_idx % len(markers)] if len(o2_columns) > 1 else None
+                        style = f'{color}{marker}-' if marker else f'{color}-'
+                        
+                        label = col.replace('_percent', ' (%)').replace('_%', ' (%)')
+                        target_ax.plot(valid_times, valid_values, style, linewidth=2, 
+                               label=label, markersize=4 if marker else None)
+                
+                # Set O2 axis range and formatter after plotting (if O2 was plotted)
+                if o2_columns:
+                    # Determine which axis was used for O2
+                    o2_axis = ax2 if ax2 is not None and has_valid_o2_data and has_valid_co2_data else (ax if has_valid_o2_data else None)
+                    if o2_axis is not None:
+                        # Set fixed range for O2 axis
+                        o2_axis.set_ylim(5.0, 30.0)
+                        # Ensure formatter is applied (reapply after plotting in case it was reset)
+                        o2_axis.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
+                
+                # Show legend if we have multiple columns (combine CO2 and O2 legends)
+                all_columns = co2_columns + o2_columns
+                if len(all_columns) > 1:
+                    # Combine legends from both axes if dual-axis, otherwise use single axis
+                    if ax2 is not None:
+                        lines1, labels1 = ax.get_legend_handles_labels()
+                        lines2, labels2 = ax2.get_legend_handles_labels()
+                        ax.legend(lines1 + lines2, labels1 + labels2, fontsize=9, loc='best')
+                    else:
+                        ax.legend(fontsize=9)
         
         plt.tight_layout()
         plt.draw()
@@ -620,6 +820,7 @@ def main():
     use_remote = False
     csv_file = None
     update_interval = 5.0
+    debug = False
     
     # Parse arguments
     # Check for explicit flags first
@@ -632,6 +833,11 @@ def main():
         use_remote = False
         # Remove flag from args for further processing
         sys.argv = [a for a in sys.argv if a not in ['--local', '-l']]
+    
+    if '--debug' in sys.argv or '-d' in sys.argv:
+        debug = True
+        # Remove flag from args for further processing
+        sys.argv = [a for a in sys.argv if a not in ['--debug', '-d']]
     
     # Parse remaining arguments
     if len(sys.argv) < 2:
@@ -666,6 +872,7 @@ def main():
         print("\nOptions:")
         print("  --remote, -r    Force remote mode (fetch from SSH servers)")
         print("  --local, -l     Force local mode (read from local file)")
+        print("  --debug, -d     Enable debug output")
         print("\nModes:")
         print("  Remote mode: Fetches CSV files from SSH servers configured in plot_config.py")
         print("  Local mode:  Reads from a single local CSV file")
@@ -681,7 +888,7 @@ def main():
         print("  python plot_csv_data.py -l data.csv 10.0                  # Local file, 10s interval")
         sys.exit(1)
     
-    plot_csv_data(csv_file, update_interval, use_remote)
+    plot_csv_data(csv_file, update_interval, use_remote, debug)
 
 
 if __name__ == "__main__":

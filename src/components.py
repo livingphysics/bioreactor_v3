@@ -531,13 +531,8 @@ def init_co2_sensor(bioreactor, config):
     """
     try:
         # Get CO2 sensor configuration from config
-        co2_enabled = getattr(config, 'CO2_SENSOR_ENABLED', False)
         co2_i2c_bus = getattr(config, 'CO2_SENSOR_I2C_BUS', 1)
         co2_type = getattr(config, 'CO2_SENSOR_TYPE', 'sensair_k33').lower()
-
-        if not co2_enabled:
-            logger.info("CO2 sensor disabled in configuration")
-            return {'initialized': False, 'error': 'CO2 sensor disabled'}
         
         # Set default I2C address based on sensor type if not specified
         co2_i2c_address = getattr(config, 'CO2_SENSOR_I2C_ADDRESS', None)
@@ -596,6 +591,57 @@ def init_co2_sensor(bioreactor, config):
         return {'initialized': True}
     except Exception as e:
         logger.error(f"CO2 sensor initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
+def init_o2_sensor(bioreactor, config):
+    """
+    Initialize O2 sensor (Atlas Scientific) via I2C.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object with O2_SENSOR configuration
+        
+    Returns:
+        dict: {'initialized': bool}
+    """
+    try:
+        # Get O2 sensor configuration from config
+        o2_i2c_bus = getattr(config, 'O2_SENSOR_I2C_BUS', 1)
+        
+        # Set default I2C address if not specified
+        o2_i2c_address = getattr(config, 'O2_SENSOR_I2C_ADDRESS', None)
+        if o2_i2c_address is None:
+            o2_i2c_address = 0x6C  # Default for Atlas Scientific O2 sensor
+        
+        # Check dependencies - Atlas Scientific uses atlas_i2c library
+        try:
+            from atlas_i2c import atlas_i2c
+            # Initialize Atlas I2C device once during startup
+            atlas_device = atlas_i2c.AtlasI2C()
+            atlas_device.set_i2c_address(o2_i2c_address)
+            logger.info(f"Atlas O2 sensor device initialized at address 0x{o2_i2c_address:02X}")
+        except ImportError as import_error:
+            logger.error(f"O2 sensor (Atlas) dependencies missing: {import_error}. Install the atlas_i2c library.")
+            return {'initialized': False, 'error': str(import_error)}
+        except Exception as e:
+            logger.error(f"Failed to initialize Atlas O2 sensor device: {e}")
+            return {'initialized': False, 'error': str(e)}
+        
+        # Store configuration on bioreactor instance
+        bioreactor.o2_sensor_config = {
+            'i2c_address': o2_i2c_address,
+            'i2c_bus': o2_i2c_bus,
+            'atlas_device': atlas_device,
+        }
+        
+        logger.info(
+            f"O2 sensor (Atlas Scientific) initialized at I2C address 0x{o2_i2c_address:02X} on bus {o2_i2c_bus}"
+        )
+        
+        return {'initialized': True}
+    except Exception as e:
+        logger.error(f"O2 sensor initialization failed: {e}")
         return {'initialized': False, 'error': str(e)}
 
 
@@ -705,6 +751,7 @@ COMPONENT_REGISTRY = {
     'optical_density': init_optical_density,
     'eyespy_adc': init_eyespy_adc,
     'co2_sensor': init_co2_sensor,
+    'o2_sensor': init_o2_sensor,
     'pumps': init_pumps,
 }
 

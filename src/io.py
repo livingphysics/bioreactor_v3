@@ -912,6 +912,75 @@ def _read_co2_atlas(atlas_device, logger) -> Optional[int]:
         return None
 
 
+def _read_o2_atlas(atlas_device, logger) -> Optional[float]:
+    """
+    Low-level read of O2 from an Atlas Scientific sensor over I2C.
+    
+    Args:
+        atlas_device: Pre-initialized AtlasI2C device object (created during component init)
+        logger: Logger instance for error messages
+    
+    Returns:
+        float: O2 concentration in %, or None if error
+    """
+    try:
+        # Query a reading; processing_delay may be required depending on firmware
+        result = atlas_device.query("R", processing_delay=1500)
+        
+        # result.data is typically bytes; decode and parse
+        data_bytes = getattr(result, "data", None)
+        if data_bytes is None:
+            logger.error("Atlas O2 sensor returned no data")
+            return None
+        
+        try:
+            text = data_bytes.decode(errors="ignore").strip()
+        except AttributeError:
+            # Fallback if data is already str
+            text = str(data_bytes).strip()
+        
+        if not text:
+            logger.error("Atlas O2 sensor returned empty data")
+            return None
+        
+        # Remove units if present (e.g., '%') and convert to float
+        first_token = text.split()[0]
+        o2_value = float(first_token)
+        return o2_value
+    
+    except Exception as e:
+        logger.error(f"Failed to read from O2 sensor (Atlas): {e}")
+        return None
+
+
+def read_o2(bioreactor) -> Optional[float]:
+    """
+    Read O2 concentration from the Atlas Scientific O2 sensor.
+    
+    Args:
+        bioreactor: Bioreactor instance
+    
+    Returns:
+        float: O2 concentration in %, or None if error
+    """
+    if not bioreactor.is_component_initialized('o2_sensor'):
+        bioreactor.logger.warning("O2 sensor not initialized")
+        return None
+    
+    if not hasattr(bioreactor, 'o2_sensor_config'):
+        bioreactor.logger.warning("O2 sensor configuration not available")
+        return None
+    
+    config = bioreactor.o2_sensor_config
+    atlas_device = config.get('atlas_device')
+    
+    if atlas_device is None:
+        bioreactor.logger.error("Atlas O2 sensor device not initialized")
+        return None
+    
+    return _read_o2_atlas(atlas_device=atlas_device, logger=bioreactor.logger)
+
+
 def read_co2(bioreactor) -> Optional[int]:
     """
     Read CO2 concentration from the configured CO2 sensor.

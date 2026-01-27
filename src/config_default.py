@@ -30,12 +30,14 @@ class Config:
         'optical_density': False,  # Optical density sensor (ADS1115)
         'eyespy_adc': False,  # Eyespy ADC component (ADS1114, based on pioreactor)
         'co2_sensor': False,  # Senseair K33 CO2 sensor (I2C)
+        'o2_sensor': False,  # Atlas Scientific O2 sensor (I2C)
         'pumps': False,  # Pump control via ticUSB
     }
     
     # Sensor Labels for CSV output
+    # Labels are auto-populated in bioreactor.py based on INIT_COMPONENTS
+    # Only add custom labels here if you want to override the defaults
     SENSOR_LABELS: dict = {
-        'temperature': 'temperature_C',
         # OD channel labels are auto-generated from OD_ADC_CHANNELS in bioreactor.py
         # Remove old entries if channel names have changed
     }
@@ -87,10 +89,15 @@ class Config:
     # CO2_SENSOR_TYPE options:
     #   - 'sensair' or'sensair_k33' (default): Senseair K33 sensor over I2C (default address: 0x68)
     #   - 'atlas' or 'atlas_i2c': Atlas Scientific CO2 sensor over I2C using atlas_i2c library (default address: 0x69)
-    CO2_SENSOR_TYPE: str = 'sensair_k33'
-    CO2_SENSOR_ENABLED: bool = False  # Set to True to enable CO2 sensor
+    # Enable/disable via INIT_COMPONENTS['co2_sensor']
+    CO2_SENSOR_TYPE: str = 'atlas_i2c'
     CO2_SENSOR_I2C_ADDRESS: Optional[int] = None  # I2C address for CO2 sensor (None = use type-specific default: 0x68 for sensair_k33, 0x69 for atlas)
     CO2_SENSOR_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
+    
+    # O2 Sensor Configuration (Atlas Scientific)
+    # Enable/disable via INIT_COMPONENTS['o2_sensor']
+    O2_SENSOR_I2C_ADDRESS: Optional[int] = None  # I2C address for O2 sensor (None = use default: 0x6C)
+    O2_SENSOR_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
     
     # Pump Configuration (ticUSB protocol)
     # Default configuration: 2 pumps (inflow and outflow)
