@@ -398,6 +398,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             print("Warning: No recognizable column groups found")
             return
         
+        # Debug: show which groups were found (after filtering empty ones)
+        print(f"DEBUG: Groups found after filtering: {list(groups.keys())}")
+        
         # Check if we have a Time group (required)
         if 'Time' not in groups or not groups['Time']:
             print("Warning: No time column found")
@@ -443,7 +446,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         else:
             sources = ['Local']  # Single source for local files
         
-        # Get data type groups (excluding Time)
+        # Get data type groups (excluding Time) - only include non-empty groups
         data_groups = {k: v for k, v in groups.items() if k != 'Time' and v}  # Ensure groups are non-empty
         num_groups = len(data_groups)
         
@@ -458,9 +461,11 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         current_group_names = sorted(data_groups.keys())
         if fig is not None:
             # Check if we need to recreate the figure due to structure change
-            # This is a simple check - if the number of groups changed, recreate
+            # Compare both the number of groups and the actual group names
             expected_cols = len(current_group_names)
-            if hasattr(fig, '_last_num_groups') and fig._last_num_groups != expected_cols:
+            last_group_names = getattr(fig, '_last_group_names', None)
+            if (hasattr(fig, '_last_num_groups') and fig._last_num_groups != expected_cols) or \
+               (last_group_names is not None and last_group_names != current_group_names):
                 # Structure changed, close and recreate
                 plt.close(fig)
                 fig = None
@@ -485,7 +490,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             
             # Normalize axes to always be a 2D list for consistent access
             # matplotlib's subplots returns different structures depending on dimensions
-            import numpy as np
+            # Note: np is already imported at module level
             
             if num_rows == 1 and num_cols == 1:
                 # Single subplot: axes is a single Axes object
@@ -515,8 +520,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             plt.show(block=False)
             plt.pause(0.1)  # Give matplotlib time to display the window
             
-            # Store the number of groups for change detection
+            # Store the number of groups and group names for change detection
             fig._last_num_groups = num_groups
+            fig._last_group_names = current_group_names
         
         # Plot each bioreactor (source) in its own row
         colors = ['b-', 'r-', 'g-', 'm-', 'c-', 'y-', 'k-']
@@ -554,10 +560,20 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 ax.grid(True, alpha=0.3)
                 
                 # Separate CO2 and O2 columns for dual-axis plotting
-                # Match CO2 columns: contains 'co2' but not 'o2' (to avoid matching columns with both)
-                co2_columns = [col for col in columns if 'co2' in col.lower() and 'o2' not in col.lower()]
-                # Match O2 columns: contains 'o2' but not 'co2' (to avoid matching CO2 columns)
-                o2_columns = [col for col in columns if 'o2' in col.lower() and 'co2' not in col.lower()]
+                co2_columns = []
+                o2_columns = []
+                for col in columns:
+                    col_lower = col.lower().strip()
+                    # CO2 column: contains 'co2' and does NOT contain standalone 'o2' (without 'co2' before it)
+                    # This matches: CO2_ppm, co2_ppm, CO2_ppm_x10, etc.
+                    if 'co2' in col_lower:
+                        # Make sure it's not an O2 column that happens to contain 'co2' as part of something else
+                        # If it has 'o2' but 'co2' comes before 'o2', it's a CO2 column
+                        # If it has 'o2' and 'co2' doesn't come before it, skip (shouldn't happen with our naming)
+                        co2_columns.append(col)
+                    # O2 column: contains 'o2' but NOT 'co2'
+                    elif 'o2' in col_lower and 'co2' not in col_lower:
+                        o2_columns.append(col)
                 
                 # Debug: print what columns we found
                 if group_name == 'Gases':
