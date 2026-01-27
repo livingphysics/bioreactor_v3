@@ -35,8 +35,9 @@ class Config:
     }
     
     # Sensor Labels for CSV output
+    # Labels are auto-populated in bioreactor.py based on INIT_COMPONENTS
+    # Only add custom labels here if you want to override the defaults
     SENSOR_LABELS: dict = {
-        'temperature': 'temperature_C',
         # OD channel labels are auto-generated from OD_ADC_CHANNELS in bioreactor.py
         # Remove old entries if channel names have changed
     }

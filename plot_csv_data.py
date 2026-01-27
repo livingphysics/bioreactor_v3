@@ -258,7 +258,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     Groups columns by type:
     - OD and Eyespy voltage readings (columns containing 'OD', 'od', 'eyespy', or 'Eyespy') -> one subplot
     - Temperature (columns containing 'temp' or 'temperature') -> one subplot
-    - CO2 and O2 (columns containing 'co2', 'CO2', 'o2', or 'O2') -> one subplot with dual y-axes
+    - Gases (CO2 and O2 columns containing 'co2', 'CO2', 'o2', or 'O2') -> one subplot with dual y-axes
     - Time -> x-axis for all
     
     Note: Only voltage columns are plotted (raw ADC values are excluded).
@@ -300,7 +300,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         groups = {
             'OD': [],
             'Temperature': [],
-            'CO2': [],
+            'Gases': [],
             'Time': []
         }
         
@@ -319,11 +319,11 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             elif 'temp' in header_lower:
                 groups['Temperature'].append(header)
             elif 'co2' in header_lower:
-                # Group CO2 columns
-                groups['CO2'].append(header)
+                # Group CO2 columns (e.g., CO2_ppm)
+                groups['Gases'].append(header)
             elif 'o2' in header_lower and 'co2' not in header_lower:
-                # Group O2 columns (but not if it's part of a CO2 column name)
-                groups['CO2'].append(header)  # Add to CO2 group for dual-axis plotting
+                # Group O2 columns (e.g., O2_percent) - add to Gases group for dual-axis plotting
+                groups['Gases'].append(header)
         
         # Remove empty groups
         return {k: v for k, v in groups.items() if v}
@@ -394,7 +394,6 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         
         # Group columns
         groups = group_columns(headers)
-        print(groups)
         if not groups:
             print("Warning: No recognizable column groups found")
             return
@@ -528,8 +527,16 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 ax.grid(True, alpha=0.3)
                 
                 # Separate CO2 and O2 columns for dual-axis plotting
+                # Match CO2 columns: contains 'co2' but not 'o2' (to avoid matching columns with both)
                 co2_columns = [col for col in columns if 'co2' in col.lower() and 'o2' not in col.lower()]
+                # Match O2 columns: contains 'o2' but not 'co2' (to avoid matching CO2 columns)
                 o2_columns = [col for col in columns if 'o2' in col.lower() and 'co2' not in col.lower()]
+                
+                # Debug: print what columns we found
+                if group_name == 'Gases':
+                    print(f"DEBUG: All columns in Gases group: {columns}")
+                    print(f"DEBUG: CO2 columns found: {co2_columns}")
+                    print(f"DEBUG: O2 columns found: {o2_columns}")
                 
                 # Determine ylabel and create secondary axis if needed
                 ax2 = None
@@ -537,7 +544,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     ax.set_ylabel('Voltage (V)')  # OD and Eyespy both use this
                 elif group_name == 'Temperature':
                     ax.set_ylabel('Temperature (°C)')
-                elif group_name == 'CO2':
+                elif group_name == 'Gases':
                     # Handle CO2/O2 dual-axis plotting
                     if co2_columns and o2_columns:
                         # Both CO2 and O2: use dual axes
@@ -556,17 +563,29 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 # Plot CO2 columns on primary axis
                 for col_idx, col in enumerate(co2_columns):
                     if col not in data:
+                        print(f"DEBUG: CO2 column '{col}' not found in data dictionary. Available keys: {list(data.keys())[:10]}")
                         continue
                     source_values = [data[col][i] for i in source_indices]
-                    if not source_values:
+                    # Filter out NaN values for plotting
+                    valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v)]
+                    if not valid_indices:
+                        print(f"DEBUG: CO2 column '{col}' has no valid (non-NaN) values")
                         continue
+                    
+                    # Use only valid data points
+                    valid_times = [source_times[i] for i in valid_indices]
+                    valid_values = [source_values[i] for i in valid_indices]
+                    
+                    # For CO2_ppm_x10, divide by 10 to get actual ppm for display
+                    if 'ppm_x10' in col.lower() or 'ppm_x' in col.lower():
+                        valid_values = [v / 10.0 for v in valid_values]
                     
                     color = colors[col_idx % len(colors)]
                     marker = markers[col_idx % len(markers)] if len(co2_columns) > 1 else None
                     style = f'{color[0]}{marker}-' if marker else color
                     
-                    label = col
-                    ax.plot(source_times, source_values, style, linewidth=2, 
+                    label = col.replace('_ppm_x10', ' (ppm)').replace('_x10', '')
+                    ax.plot(valid_times, valid_values, style, linewidth=2, 
                            label=label, markersize=4 if marker else None)
                 
                 # Plot O2 columns (on secondary axis if both exist, otherwise primary)
@@ -574,10 +593,18 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     target_ax = ax2 if ax2 is not None else ax
                     for col_idx, col in enumerate(o2_columns):
                         if col not in data:
+                            print(f"DEBUG: O2 column '{col}' not found in data dictionary. Available keys: {list(data.keys())[:10]}")
                             continue
                         source_values = [data[col][i] for i in source_indices]
-                        if not source_values:
+                        # Filter out NaN values for plotting
+                        valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v)]
+                        if not valid_indices:
+                            print(f"DEBUG: O2 column '{col}' has no valid (non-NaN) values")
                             continue
+                        
+                        # Use only valid data points
+                        valid_times = [source_times[i] for i in valid_indices]
+                        valid_values = [source_values[i] for i in valid_indices]
                         
                         # Use red colors for O2
                         o2_colors = ['r', 'darkred', 'crimson', 'salmon']
@@ -585,8 +612,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         marker = markers[col_idx % len(markers)] if len(o2_columns) > 1 else None
                         style = f'{color}{marker}-' if marker else f'{color}-'
                         
-                        label = col
-                        target_ax.plot(source_times, source_values, style, linewidth=2, 
+                        label = col.replace('_percent', ' (%)').replace('_%', ' (%)')
+                        target_ax.plot(valid_times, valid_values, style, linewidth=2, 
                                label=label, markersize=4 if marker else None)
                 
                 # Show legend if we have multiple columns (combine CO2 and O2 legends)

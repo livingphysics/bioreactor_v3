@@ -427,9 +427,9 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         if bioreactor.is_component_initialized('co2_sensor') and 'co2' in sensor_data:
             # Get label from config or auto-generate
             if config and hasattr(config, 'SENSOR_LABELS'):
-                co2_label = config.SENSOR_LABELS.get('co2', 'CO2_ppm_x10')
+                co2_label = config.SENSOR_LABELS.get('co2', 'CO2_ppm')
             else:
-                co2_label = 'CO2_ppm_x10'
+                co2_label = 'CO2_ppm'
             csv_row[co2_label] = sensor_data['co2']
         
         # Add O2 data if sensor is initialized

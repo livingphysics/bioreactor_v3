@@ -106,16 +106,23 @@ class Bioreactor():
                     if voltage_key not in config.SENSOR_LABELS:
                         config.SENSOR_LABELS[voltage_key] = f"Eyespy_{board_name}_V"
             
+            # Auto-populate temperature sensor label if temp_sensor is enabled
+            temp_enabled = init_components.get('temp_sensor', False)
+            if temp_enabled:
+                if 'temperature' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['temperature'] = 'temperature_C'
+            
             # Auto-populate CO2 sensor label if co2_sensor is enabled
             co2_enabled = init_components.get('co2_sensor', False)
             if co2_enabled:
                 if 'co2' not in config.SENSOR_LABELS:
-                    config.SENSOR_LABELS['co2'] = 'CO2_ppm_x10'
-                
-                # Add O2 sensor label if O2 sensor is enabled
-                if config.INIT_COMPONENTS.get('o2_sensor', False):
-                    if 'o2' not in config.SENSOR_LABELS:
-                        config.SENSOR_LABELS['o2'] = 'O2_percent'
+                    config.SENSOR_LABELS['co2'] = 'CO2_ppm'
+            
+            # Auto-populate O2 sensor label if o2_sensor is enabled
+            o2_enabled = init_components.get('o2_sensor', False)
+            if o2_enabled:
+                if 'o2' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['o2'] = 'O2_percent'
             
             # Build fieldnames from SENSOR_LABELS
             sensor_keys = list(config.SENSOR_LABELS.keys())
