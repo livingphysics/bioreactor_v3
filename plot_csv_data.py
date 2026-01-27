@@ -637,6 +637,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         ax2.tick_params(axis='y', labelcolor='r')
                         # Format O2 axis to show 2 decimal places, not scientific notation
                         ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
+                        # Set O2 axis range to 5% to 30% (will be reapplied after plotting)
                     elif has_valid_co2_data:
                         # Only CO2 has valid data: use primary axis
                         ax.set_ylabel('CO2 (ppm)')
@@ -651,6 +652,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         ax.set_ylabel('O2 (%)')
                         # Format O2 axis to show 2 decimal places, not scientific notation
                         ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
+                        # Set O2 axis range to 5% to 30%
+                        ax.set_ylim(5.0, 30.0)
                         # Remove twin axis if it exists (no longer needed)
                         if twin_key in twin_axes:
                             old_ax2 = twin_axes[twin_key]
@@ -726,6 +729,16 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         label = col.replace('_percent', ' (%)').replace('_%', ' (%)')
                         target_ax.plot(valid_times, valid_values, style, linewidth=2, 
                                label=label, markersize=4 if marker else None)
+                
+                # Set O2 axis range and formatter after plotting (if O2 was plotted)
+                if o2_columns:
+                    # Determine which axis was used for O2
+                    o2_axis = ax2 if ax2 is not None and has_valid_o2_data and has_valid_co2_data else (ax if has_valid_o2_data else None)
+                    if o2_axis is not None:
+                        # Set fixed range for O2 axis
+                        o2_axis.set_ylim(5.0, 30.0)
+                        # Ensure formatter is applied (reapply after plotting in case it was reset)
+                        o2_axis.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                 
                 # Show legend if we have multiple columns (combine CO2 and O2 legends)
                 all_columns = co2_columns + o2_columns
