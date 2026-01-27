@@ -125,11 +125,12 @@ class Bioreactor():
                     config.SENSOR_LABELS['o2'] = 'O2_percent'
             
             # Build fieldnames from SENSOR_LABELS
+            # Include both 'time' (timestamp) and 'elapsed_time' (seconds since start)
             sensor_keys = list(config.SENSOR_LABELS.keys())
-            fieldnames = ['time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]
+            fieldnames = ['time', 'elapsed_time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]
         else:
             # Default fieldnames if no config provided
-            fieldnames = ['time']
+            fieldnames = ['time', 'elapsed_time']
         
         self.fieldnames = fieldnames
         

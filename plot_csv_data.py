@@ -309,7 +309,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             if header.lower() == 'source':
                 continue
             header_lower = header.lower()
-            if header_lower == 'time':
+            if header_lower == 'time' or header_lower == 'elapsed_time':
                 groups['Time'].append(header)
             elif 'od' in header_lower or 'eyespy' in header_lower:
                 # Group both OD and eyespy voltage columns together
@@ -392,16 +392,27 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 return
             data, headers = result
         
-        # Group columns
+        # Group columns (this automatically removes empty groups)
         groups = group_columns(headers)
         if not groups:
             print("Warning: No recognizable column groups found")
             return
         
-        # Determine time column
+        # Check if we have a Time group (required)
+        if 'Time' not in groups or not groups['Time']:
+            print("Warning: No time column found")
+            return
+        
+        # Determine time column (prefer elapsed_time for plotting, fall back to time)
         time_col = None
         if 'Time' in groups and groups['Time']:
-            time_col = groups['Time'][0]
+            # Prefer 'elapsed_time' if available, otherwise use first time column
+            if 'elapsed_time' in groups['Time']:
+                time_col = 'elapsed_time'
+            else:
+                time_col = groups['Time'][0]
+        elif 'elapsed_time' in headers:
+            time_col = 'elapsed_time'
         elif 'time' in headers:
             time_col = 'time'
         else:
@@ -433,14 +444,27 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             sources = ['Local']  # Single source for local files
         
         # Get data type groups (excluding Time)
-        data_groups = {k: v for k, v in groups.items() if k != 'Time'}
+        data_groups = {k: v for k, v in groups.items() if k != 'Time' and v}  # Ensure groups are non-empty
         num_groups = len(data_groups)
         
         if num_groups == 0:
+            print("Warning: No data groups found (only Time column present)")
             return
         
         # Calculate number of sources (needed for both figure creation and plotting)
         num_sources = len(sources)
+        
+        # Check if figure needs to be recreated (if group structure changed)
+        current_group_names = sorted(data_groups.keys())
+        if fig is not None:
+            # Check if we need to recreate the figure due to structure change
+            # This is a simple check - if the number of groups changed, recreate
+            expected_cols = len(current_group_names)
+            if hasattr(fig, '_last_num_groups') and fig._last_num_groups != expected_cols:
+                # Structure changed, close and recreate
+                plt.close(fig)
+                fig = None
+                axes = None
         
         # Create or update figure
         # Layout: Each bioreactor (source) gets a row, each row has subplots for each data type
@@ -490,6 +514,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             # Show the figure window
             plt.show(block=False)
             plt.pause(0.1)  # Give matplotlib time to display the window
+            
+            # Store the number of groups for change detection
+            fig._last_num_groups = num_groups
         
         # Plot each bioreactor (source) in its own row
         colors = ['b-', 'r-', 'g-', 'm-', 'c-', 'y-', 'k-']

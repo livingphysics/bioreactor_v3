@@ -90,7 +90,7 @@ class Config:
     #   - 'sensair' or'sensair_k33' (default): Senseair K33 sensor over I2C (default address: 0x68)
     #   - 'atlas' or 'atlas_i2c': Atlas Scientific CO2 sensor over I2C using atlas_i2c library (default address: 0x69)
     # Enable/disable via INIT_COMPONENTS['co2_sensor']
-    CO2_SENSOR_TYPE: str = 'sensair_k33'
+    CO2_SENSOR_TYPE: str = 'atlas_i2c'
     CO2_SENSOR_I2C_ADDRESS: Optional[int] = None  # I2C address for CO2 sensor (None = use type-specific default: 0x68 for sensair_k33, 0x69 for atlas)
     CO2_SENSOR_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
     

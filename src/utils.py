@@ -8,6 +8,7 @@ import time
 import logging
 from typing import Union, Optional
 from collections import deque
+from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -73,7 +74,7 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
             _plot_data[plot_key] = deque(maxlen=PLOT_DATA_MAXLEN)
     
     # Read sensors
-    sensor_data = {'time': elapsed}
+    sensor_data = {'elapsed_time': elapsed}
     
     # Read Temperature
     temp_value = get_temperature(bioreactor, sensor_index=0)
@@ -124,7 +125,12 @@ def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_po
     
     # Write to CSV
     if hasattr(bioreactor, 'writer') and bioreactor.writer:
-        csv_row = {'time': elapsed}
+        # Get current timestamp
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        csv_row = {
+            'time': current_time,  # Actual timestamp
+            'elapsed_time': elapsed  # Elapsed seconds since start
+        }
         
         # Add temperature with config label if available
         if config and hasattr(config, 'SENSOR_LABELS'):
@@ -253,7 +259,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         od_channel_names = list(bioreactor.od_channels.keys())
     
     # Read sensors
-    sensor_data = {'time': elapsed}
+    sensor_data = {'elapsed_time': elapsed}
     
     # Read Temperature only if temp_sensor is initialized
     if bioreactor.is_component_initialized('temp_sensor'):
