@@ -595,8 +595,64 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 ax2 = None
                 if group_name == 'OD':
                     ax.set_ylabel('Voltage (V)')  # OD and Eyespy both use this
+                    # Plot OD columns
+                    for col_idx, col in enumerate(columns):
+                        if col not in data:
+                            if debug:
+                                print(f"DEBUG: OD column '{col}' not found in data dictionary")
+                            continue
+                        source_values = [data[col][i] for i in source_indices]
+                        # Filter out NaN values for plotting
+                        valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v)]
+                        if not valid_indices:
+                            if debug:
+                                print(f"DEBUG: OD column '{col}' has no valid (non-NaN) values")
+                            continue
+
+                        valid_times = [source_times[i] for i in valid_indices]
+                        valid_values = [source_values[i] for i in valid_indices]
+
+                        color = colors[col_idx % len(colors)]
+                        marker = markers[col_idx % len(markers)] if len(columns) > 1 else None
+                        style = f'{color[0]}{marker}-' if marker else color
+
+                        ax.plot(valid_times, valid_values, style, linewidth=2,
+                               label=col, markersize=4 if marker else None)
+
+                    # Show legend if we have multiple OD columns
+                    if len(columns) > 1:
+                        ax.legend(fontsize=9)
+
                 elif group_name == 'Temperature':
                     ax.set_ylabel('Temperature (°C)')
+                    # Plot Temperature columns
+                    for col_idx, col in enumerate(columns):
+                        if col not in data:
+                            if debug:
+                                print(f"DEBUG: Temperature column '{col}' not found in data dictionary")
+                            continue
+                        source_values = [data[col][i] for i in source_indices]
+                        # Filter out NaN values for plotting
+                        valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v)]
+                        if not valid_indices:
+                            if debug:
+                                print(f"DEBUG: Temperature column '{col}' has no valid (non-NaN) values")
+                            continue
+
+                        valid_times = [source_times[i] for i in valid_indices]
+                        valid_values = [source_values[i] for i in valid_indices]
+
+                        color = colors[col_idx % len(colors)]
+                        marker = markers[col_idx % len(markers)] if len(columns) > 1 else None
+                        style = f'{color[0]}{marker}-' if marker else color
+
+                        ax.plot(valid_times, valid_values, style, linewidth=2,
+                               label=col, markersize=4 if marker else None)
+
+                    # Show legend if we have multiple temperature columns
+                    if len(columns) > 1:
+                        ax.legend(fontsize=9)
+
                 elif group_name == 'Gases':
                     # Check if we have valid O2 data before deciding on axis setup
                     has_valid_o2_data = False
@@ -654,7 +710,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         # Format O2 axis to show 2 decimal places, not scientific notation
                         ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                         # Set O2 axis range to 5% to 30%
-                        ax.set_ylim(5.0, 30.0)
+                        ax.set_ylim(20.0, 25.0)
                         # Remove twin axis if it exists (no longer needed)
                         if twin_key in twin_axes:
                             old_ax2 = twin_axes[twin_key]
@@ -737,7 +793,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     o2_axis = ax2 if ax2 is not None and has_valid_o2_data and has_valid_co2_data else (ax if has_valid_o2_data else None)
                     if o2_axis is not None:
                         # Set fixed range for O2 axis
-                        o2_axis.set_ylim(5.0, 30.0)
+                        o2_axis.set_ylim(20.0, 25.0)
                         # Ensure formatter is applied (reapply after plotting in case it was reset)
                         o2_axis.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                 

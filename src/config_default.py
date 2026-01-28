@@ -50,7 +50,7 @@ class Config:
     # Stirrer Configuration (PWM only)
     STIRRER_PWM_PIN: int = 21  # BCM pin for stirrer PWM output
     STIRRER_PWM_FREQ: int = 1000  # PWM frequency in Hz
-    STIRRER_DEFAULT_DUTY: float = 20.0  # Default duty cycle (0-100)
+    STIRRER_DEFAULT_DUTY: float = 50.0  # Default duty cycle (0-100)
 
     # LED Configuration (PWM control)
     LED_PWM_PIN: int = 25  # BCM pin for LED PWM output
