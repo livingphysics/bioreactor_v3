@@ -15,12 +15,14 @@ Usage:
     
 Options:
     --remote, -r    Force remote mode (fetch from SSH servers)
-    --local, -l    Force local mode (read from local file)
+    --local, -l     Force local mode (read from local file)
+    --recent        Use the most recent .csv (local: in given path/dir, remote: per server's remote_path)
     
 Examples:
     # Remote mode (default when no file specified):
     python plot_csv_data.py                    # Remote, 5s interval
     python plot_csv_data.py --remote 10.0     # Remote, 10s interval
+    python plot_csv_data.py --recent          # Remote, use most recent .csv per server
     
     # Local mode:
     python plot_csv_data.py data.csv          # Local file, 5s interval
@@ -60,19 +62,104 @@ except ImportError:
     sys.exit(1)
 
 
-def fetch_remote_file(server_config, cache_dir):
+def get_most_recent_local_csv(directory_path):
+    """
+    Get the full path to the most recent .csv file in a directory (by mtime).
+    
+    Args:
+        directory_path: Path to a local directory.
+        
+    Returns:
+        Full path to the most recent .csv file, or None if none found or error.
+    """
+    if not directory_path or not os.path.isdir(directory_path):
+        return None
+    try:
+        entries = []
+        for name in os.listdir(directory_path):
+            if name.lower().endswith('.csv'):
+                path = os.path.join(directory_path, name)
+                if os.path.isfile(path):
+                    entries.append((path, os.path.getmtime(path)))
+        if not entries:
+            return None
+        entries.sort(key=lambda x: x[1], reverse=True)
+        return entries[0][0]
+    except OSError:
+        return None
+
+
+def get_most_recent_remote_file(server_config):
+    """
+    Get the most recent CSV filename in the remote path (by mtime).
+    
+    Args:
+        server_config: Dictionary with 'host', 'user', 'remote_path', etc.
+        
+    Returns:
+        Filename (basename) of the most recent .csv file, or None if none found or error.
+    """
+    remote_path = server_config['remote_path'].rstrip('/').replace('\\', '/')
+    try:
+        if HAS_PARAMIKO:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            key_path = plot_config.SSH_KEY_PATH or os.path.expanduser("~/.ssh/id_rsa")
+            key = None
+            if os.path.exists(key_path):
+                try:
+                    key = paramiko.RSAKey.from_private_key_file(key_path)
+                except Exception:
+                    pass
+            ssh.connect(
+                server_config['host'],
+                username=server_config['user'],
+                pkey=key,
+                timeout=plot_config.SSH_TIMEOUT
+            )
+            sftp = ssh.open_sftp()
+            try:
+                entries = sftp.listdir_attr(remote_path)
+                csv_entries = [(e.filename, e.st_mtime) for e in entries if e.filename.lower().endswith('.csv')]
+                if not csv_entries:
+                    return None
+                csv_entries.sort(key=lambda x: x[1], reverse=True)
+                return csv_entries[0][0]
+            finally:
+                sftp.close()
+                ssh.close()
+        else:
+            # Subprocess: ssh and ls -t (sort by mtime, newest first)
+            cmd = [
+                'ssh', '-o', 'StrictHostKeyChecking=no',
+                '-o', f'ConnectTimeout={plot_config.SSH_TIMEOUT}',
+                f"{server_config['user']}@{server_config['host']}",
+                f"ls -t \"{remote_path}\"/*.csv 2>/dev/null | head -1"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=plot_config.SSH_TIMEOUT + 5)
+            if result.returncode != 0 or not result.stdout.strip():
+                return None
+            line = result.stdout.strip()
+            return os.path.basename(line) if line else None
+    except Exception:
+        return None
+
+
+def fetch_remote_file(server_config, cache_dir, filename_override=None):
     """
     Fetch a CSV file from a remote SSH server.
     
     Args:
         server_config: Dictionary with 'host', 'user', 'remote_path', 'filename', 'label'
         cache_dir: Local directory to cache the file
+        filename_override: If set, use this filename instead of server_config['filename']
         
     Returns:
         Path to local cached file, or None if fetch failed
     """
-    remote_file = os.path.join(server_config['remote_path'], server_config['filename']).replace('\\', '/')
-    local_file = os.path.join(cache_dir, f"{server_config['label']}_{server_config['filename']}")
+    filename = filename_override if filename_override is not None else server_config['filename']
+    remote_file = os.path.join(server_config['remote_path'], filename).replace('\\', '/')
+    local_file = os.path.join(cache_dir, f"{server_config['label']}_{filename}")
     
     try:
         if HAS_PARAMIKO:
@@ -153,22 +240,31 @@ def fetch_remote_file(server_config, cache_dir):
         return None
 
 
-def fetch_all_remote_files(servers, cache_dir):
+def fetch_all_remote_files(servers, cache_dir, use_recent=False, resolved_filenames=None):
     """
     Fetch CSV files from all configured remote servers.
     
     Args:
         servers: List of server configuration dictionaries
         cache_dir: Local directory to cache files
+        use_recent: If True and resolved_filenames not provided, fetch the most recent .csv per server
+        resolved_filenames: Optional dict {server_label: filename} from a one-time resolve (avoids re-scan on each update)
         
     Returns:
-        List of local file paths (None for failed fetches)
+        List of (label, local_file_path) tuples (local_file_path is None for failed fetches)
     """
     os.makedirs(cache_dir, exist_ok=True)
     local_files = []
     
     for server in servers:
-        local_file = fetch_remote_file(server, cache_dir)
+        filename_override = None
+        if resolved_filenames is not None:
+            filename_override = resolved_filenames.get(server['label'], server['filename'])
+        elif use_recent:
+            recent = get_most_recent_remote_file(server)
+            if recent:
+                filename_override = recent
+        local_file = fetch_remote_file(server, cache_dir, filename_override=filename_override)
         local_files.append((server['label'], local_file))
     
     return local_files
@@ -238,7 +334,7 @@ def combine_csv_files(file_list):
     return all_data, all_headers
 
 
-def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_remote: bool = False, debug: bool = False):
+def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_remote: bool = False, use_recent: bool = False, debug: bool = False):
     """
     Read CSV file(s) and plot data with automatic grouping of similar columns.
     
@@ -254,7 +350,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
        - Configure servers in plot_config.py
        - Fetches CSV files from all configured servers and combines them
        - Each bioreactor appears in its own row
-       - Example: plot_csv_data(None, 5.0, True)
+       - If use_recent=True, fetches the most recent .csv in each server's remote_path (remote) or in the given directory (local)
+       - Example: plot_csv_data(None, 5.0, True) or plot_csv_data(None, 5.0, True, use_recent=True)
     
     Groups columns by type:
     - OD and Eyespy voltage readings (columns containing 'OD', 'od', 'eyespy', or 'Eyespy') -> one subplot
@@ -272,8 +369,11 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         use_remote: If True, fetch from remote servers configured in plot_config.py
                    If False and csv_file_path provided, read from local file
                    If False and csv_file_path is None, defaults to remote mode
+        use_recent: If True, use the most recent .csv (local: in given path or directory; remote: per server's remote_path)
     """
     # Determine if we're using remote files
+    local_recent_dir = None  # When local + use_recent, directory to scan for most recent .csv
+    remote_resolved_filenames = None  # One-time resolve when use_remote and use_recent
     if csv_file_path is None or use_remote:
         use_remote = True
         servers = getattr(plot_config, 'SSH_SERVERS', [])
@@ -281,12 +381,33 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             print("Error: No SSH servers configured in plot_config.py")
             return
         cache_dir = getattr(plot_config, 'CACHE_DIR', '/tmp/plot_csv_cache')
+        if use_recent:
+            remote_resolved_filenames = {
+                s['label']: (get_most_recent_remote_file(s) or s['filename']) for s in servers
+            }
         print(f"Fetching data from {len(servers)} remote server(s)...")
     else:
         use_remote = False
-        if csv_file_path is None or not os.path.exists(csv_file_path):
-            print(f"Error: CSV file not found: {csv_file_path}")
-            return
+        if use_recent:
+            # Local recent mode: path can be a directory or a file (we use its dir)
+            if csv_file_path is None:
+                local_recent_dir = os.path.abspath('.')
+            elif os.path.isdir(csv_file_path):
+                local_recent_dir = os.path.abspath(csv_file_path)
+            else:
+                local_recent_dir = os.path.abspath(os.path.dirname(csv_file_path))
+            if not os.path.isdir(local_recent_dir):
+                print(f"Error: Directory not found: {local_recent_dir}")
+                return
+            first_csv = get_most_recent_local_csv(local_recent_dir)
+            if not first_csv:
+                print(f"Error: No .csv files found in {local_recent_dir}")
+                return
+            csv_file_path = first_csv  # Use this file for all updates (no re-scan)
+        else:
+            if csv_file_path is None or not os.path.exists(csv_file_path):
+                print(f"Error: CSV file not found: {csv_file_path}")
+                return
     
     # Global storage for plot data
     last_row_count = 0
@@ -337,7 +458,11 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         if use_remote:
             # Fetch from remote servers
             servers = getattr(plot_config, 'SSH_SERVERS', [])
-            file_list = fetch_all_remote_files(servers, cache_dir)
+            file_list = fetch_all_remote_files(
+                servers, cache_dir,
+                use_recent=False,
+                resolved_filenames=remote_resolved_filenames
+            )
             
             # Combine data from all files
             data, headers = combine_csv_files(file_list)
@@ -350,10 +475,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             last_row_count = total_rows
             return data, headers
         else:
-            # Read from local file
+            # Read from local file (path fixed at startup when use_recent)
             data = {}
             headers = []
-            
             try:
                 with open(csv_file_path, 'r', newline='') as f:
                     reader = csv.DictReader(f)
@@ -486,6 +610,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             if use_remote:
                 server_names = ', '.join([s['label'] for s in getattr(plot_config, 'SSH_SERVERS', [])])
                 fig.suptitle(f'Live Data from Remote Servers ({server_names})', fontsize=14)
+            elif local_recent_dir:
+                fig.suptitle(f'Live Data (most recent .csv in {os.path.basename(local_recent_dir)})', fontsize=14)
             else:
                 fig.suptitle(f'Live Data from {os.path.basename(csv_file_path)}', fontsize=14)
             
@@ -874,6 +1000,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
 def main():
     """Main entry point for command-line usage."""
     use_remote = False
+    use_recent = False
     csv_file = None
     update_interval = 5.0
     debug = False
@@ -885,10 +1012,15 @@ def main():
         # Remove flag from args for further processing
         sys.argv = [a for a in sys.argv if a not in ['--remote', '-r']]
     
-    if '--local' in sys.argv or '-l' in sys.argv:
+    explicit_local = '--local' in sys.argv or '-l' in sys.argv
+    if explicit_local:
         use_remote = False
         # Remove flag from args for further processing
         sys.argv = [a for a in sys.argv if a not in ['--local', '-l']]
+    
+    if '--recent' in sys.argv:
+        use_recent = True
+        sys.argv = [a for a in sys.argv if a != '--recent']
     
     if '--debug' in sys.argv or '-d' in sys.argv:
         debug = True
@@ -897,14 +1029,17 @@ def main():
     
     # Parse remaining arguments
     if len(sys.argv) < 2:
-        # No arguments: use remote servers from config
-        use_remote = True
+        # No arguments: use remote servers from config unless --local (e.g. --local --recent)
+        if not explicit_local:
+            use_remote = True
+        else:
+            csv_file = '.'  # local + recent with no path: use current directory
     elif len(sys.argv) == 2:
         # One argument: could be file path or update interval
         try:
             update_interval = float(sys.argv[1])
-            # If it's a number and no explicit flag, assume remote mode
-            if not ('--local' in sys.argv or '-l' in sys.argv):
+            # If it's a number and no explicit local, assume remote mode
+            if not explicit_local:
                 use_remote = True
         except ValueError:
             csv_file = sys.argv[1]  # If not a number, assume it's a file path
@@ -915,7 +1050,7 @@ def main():
             # Try to parse first as float
             float(sys.argv[1])
             # If successful, both are numbers - use remote unless --local specified
-            if not ('--local' in sys.argv or '-l' in sys.argv):
+            if not explicit_local:
                 use_remote = True
             update_interval = float(sys.argv[1])
         except ValueError:
@@ -928,23 +1063,26 @@ def main():
         print("\nOptions:")
         print("  --remote, -r    Force remote mode (fetch from SSH servers)")
         print("  --local, -l     Force local mode (read from local file)")
+        print("  --recent        Use most recent .csv (local: in path/dir, remote: per server)")
         print("  --debug, -d     Enable debug output")
         print("\nModes:")
         print("  Remote mode: Fetches CSV files from SSH servers configured in plot_config.py")
-        print("  Local mode:  Reads from a single local CSV file")
+        print("  Local mode:  Reads from a single local CSV file (or most recent .csv in a dir with --recent)")
         print("\nExamples:")
         print("  # Remote mode (default when no file specified):")
         print("  python plot_csv_data.py                                    # Remote, 5s interval")
         print("  python plot_csv_data.py --remote 10.0                     # Remote, 10s interval")
         print("  python plot_csv_data.py -r                                 # Remote, 5s interval")
+        print("  python plot_csv_data.py --recent                           # Remote, most recent .csv per server")
         print("\n  # Local mode:")
         print("  python plot_csv_data.py data.csv                           # Local file, 5s interval")
         print("  python plot_csv_data.py --local data.csv                  # Local file, 5s interval")
         print("  python plot_csv_data.py data.csv 10.0                     # Local file, 10s interval")
         print("  python plot_csv_data.py -l data.csv 10.0                  # Local file, 10s interval")
+        print("  python plot_csv_data.py --local --recent ./data            # Local, most recent .csv in ./data")
         sys.exit(1)
     
-    plot_csv_data(csv_file, update_interval, use_remote, debug)
+    plot_csv_data(csv_file, update_interval, use_remote, use_recent, debug)
 
 
 if __name__ == "__main__":
