@@ -1,0 +1,12 @@
+numpy
+matplotlib
+adafruit-ads1x15
+adafruit-circuitpython-busio
+adafruit-circuitpython-board
+smbus2
+lgpio
+ds18b20
+ticlib
+pi5neo
+atlas-i2c
+paramiko
