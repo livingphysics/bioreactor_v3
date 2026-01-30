@@ -919,7 +919,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     o2_axis = ax2 if ax2 is not None and has_valid_o2_data and has_valid_co2_data else (ax if has_valid_o2_data else None)
                     if o2_axis is not None:
                         # Set fixed range for O2 axis
-                        o2_axis.set_ylim(20.0, 25.0)
+                        o2_axis.set_ylim(18.0, 23.0)
                         # Ensure formatter is applied (reapply after plotting in case it was reset)
                         o2_axis.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                 
