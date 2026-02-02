@@ -710,7 +710,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         # Format O2 axis to show 2 decimal places, not scientific notation
                         ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                         # Set O2 axis range to 5% to 30%
-                        ax.set_ylim(20.0, 25.0)
+                        ax.set_ylim(18.0, 23.0)
                         # Remove twin axis if it exists (no longer needed)
                         if twin_key in twin_axes:
                             old_ax2 = twin_axes[twin_key]
@@ -793,7 +793,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     o2_axis = ax2 if ax2 is not None and has_valid_o2_data and has_valid_co2_data else (ax if has_valid_o2_data else None)
                     if o2_axis is not None:
                         # Set fixed range for O2 axis
-                        o2_axis.set_ylim(20.0, 25.0)
+                        o2_axis.set_ylim(18.0, 23.0)
                         # Ensure formatter is applied (reapply after plotting in case it was reset)
                         o2_axis.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                 

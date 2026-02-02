@@ -86,7 +86,7 @@ with Bioreactor(config) as reactor:
         
         # Temperature PID controller - maintains temperature at 37.0°C
         # Run PID controller every 5 seconds
-        (partial(temperature_pid_controller, setpoint=20.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
+        (partial(temperature_pid_controller, setpoint=25.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
         
         # Ring light cycle - turns on at (50,50,50) for 60s, then off for 60s, repeating
         # Check every 1 second to update state
