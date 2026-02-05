@@ -1,6 +1,6 @@
 numpy
 matplotlib
-adafruit-ads1x15
+adafruit-circiutpython-ads1x15
 smbus2
 lgpio
 ds18b20
