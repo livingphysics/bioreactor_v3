@@ -38,7 +38,8 @@ class Config:
     # Labels are auto-populated in bioreactor.py based on INIT_COMPONENTS.
     # Only add custom labels here if you want to override the defaults.
     # Possible keys: 'temperature', 'co2', 'o2'; 'od_<channel>' (e.g. od_135, od_ref, od_90);
-    # 'eyespy_<board>_raw', 'eyespy_<board>_voltage' (e.g. eyespy1_raw, eyespy1_voltage).
+    # 'eyespy_<board>_raw', 'eyespy_<board>_voltage' (e.g. eyespy1_raw, eyespy1_voltage);
+    # 'peltier_duty', 'peltier_forward'; 'ring_light_R', 'ring_light_G', 'ring_light_B'.
     SENSOR_LABELS: dict = {}
 
     # Peltier Driver Configuration (Raspberry Pi 5 GPIO via lgpio)

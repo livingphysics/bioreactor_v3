@@ -70,6 +70,10 @@ class PeltierDriver:
     def is_active(self) -> bool:
         return self._last_duty > 0.0
 
+    def get_state(self) -> tuple:
+        """Return (duty_cycle 0-100, forward bool)."""
+        return (self._last_duty, self._last_forward)
+
 
 class StirrerDriver:
     """Single-pin PWM stirrer controller using lgpio."""
@@ -620,6 +624,40 @@ def stop_peltier(bioreactor) -> None:
         driver.stop()
     except Exception as e:
         bioreactor.logger.error(f"Failed to stop peltier driver: {e}")
+
+
+def get_peltier_state(bioreactor) -> Optional[tuple]:
+    """
+    Get current peltier duty cycle and direction (no hardware read).
+    
+    Args:
+        bioreactor: Bioreactor instance
+        
+    Returns:
+        (duty_cycle 0-100, forward bool) or None if peltier not initialized
+    """
+    driver = getattr(bioreactor, 'peltier_driver', None)
+    if not bioreactor.is_component_initialized('peltier_driver') or driver is None:
+        return None
+    return driver.get_state()
+
+
+def get_ring_light_color(bioreactor) -> Optional[tuple]:
+    """
+    Get current ring light color setting (R, G, B) 0-255.
+    
+    Args:
+        bioreactor: Bioreactor instance
+        
+    Returns:
+        (r, g, b) tuple or None if ring light not initialized
+    """
+    if not bioreactor.is_component_initialized('ring_light'):
+        return None
+    driver = getattr(bioreactor, 'ring_light_driver', None)
+    if driver is None:
+        return None
+    return driver.current_color
 
 
 def set_stirrer_speed(bioreactor, duty_cycle: Union[int, float]) -> bool:

@@ -239,7 +239,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         dict: Dictionary with all sensor readings
     """
     # Import IO functions
-    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc, read_co2, read_o2
+    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc, read_co2, read_o2, get_peltier_state, get_ring_light_color
     
     # Get elapsed time
     if elapsed is None:
@@ -373,6 +373,36 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
     else:
         sensor_data['o2'] = float('nan')
     
+    # Current peltier duty and direction (from driver state, not a sensor)
+    if bioreactor.is_component_initialized('peltier_driver'):
+        peltier_state = get_peltier_state(bioreactor)
+        if peltier_state is not None:
+            duty, forward = peltier_state
+            sensor_data['peltier_duty'] = duty
+            sensor_data['peltier_forward'] = 1.0 if forward else 0.0
+        else:
+            sensor_data['peltier_duty'] = float('nan')
+            sensor_data['peltier_forward'] = float('nan')
+    else:
+        sensor_data['peltier_duty'] = float('nan')
+        sensor_data['peltier_forward'] = float('nan')
+    
+    # Current ring light color (R, G, B 0-255)
+    if bioreactor.is_component_initialized('ring_light'):
+        ring_color = get_ring_light_color(bioreactor)
+        if ring_color is not None:
+            sensor_data['ring_light_R'] = float(ring_color[0])
+            sensor_data['ring_light_G'] = float(ring_color[1])
+            sensor_data['ring_light_B'] = float(ring_color[2])
+        else:
+            sensor_data['ring_light_R'] = float('nan')
+            sensor_data['ring_light_G'] = float('nan')
+            sensor_data['ring_light_B'] = float('nan')
+    else:
+        sensor_data['ring_light_R'] = float('nan')
+        sensor_data['ring_light_G'] = float('nan')
+        sensor_data['ring_light_B'] = float('nan')
+    
     # Write to CSV
     if hasattr(bioreactor, 'writer') and bioreactor.writer:
         # Get current timestamp
@@ -452,6 +482,26 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                 o2_label = 'O2_percent'
             csv_row[o2_label] = sensor_data['o2']
         
+        # Add peltier state if peltier_driver is initialized
+        if bioreactor.is_component_initialized('peltier_driver'):
+            if config and hasattr(config, 'SENSOR_LABELS'):
+                duty_label = config.SENSOR_LABELS.get('peltier_duty', 'peltier_duty')
+                fwd_label = config.SENSOR_LABELS.get('peltier_forward', 'peltier_forward')
+            else:
+                duty_label, fwd_label = 'peltier_duty', 'peltier_forward'
+            csv_row[duty_label] = sensor_data['peltier_duty']
+            csv_row[fwd_label] = sensor_data['peltier_forward']
+        
+        # Add ring light color if ring_light is initialized
+        if bioreactor.is_component_initialized('ring_light'):
+            for ch in ('R', 'G', 'B'):
+                key = f'ring_light_{ch}'
+                if config and hasattr(config, 'SENSOR_LABELS'):
+                    label = config.SENSOR_LABELS.get(key, key)
+                else:
+                    label = key
+                csv_row[label] = sensor_data[key]
+        
         try:
             # Only write fields that exist in fieldnames to avoid errors
             if hasattr(bioreactor, 'fieldnames'):
@@ -503,6 +553,20 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         o2_value = sensor_data['o2']
         if not np.isnan(o2_value):
             log_parts.append(f"O2: {o2_value:.2f}%")
+    
+    # Add peltier state to log
+    if bioreactor.is_component_initialized('peltier_driver') and 'peltier_duty' in sensor_data:
+        duty = sensor_data.get('peltier_duty', float('nan'))
+        fwd = sensor_data.get('peltier_forward', 1.0)
+        if not np.isnan(duty):
+            dir_str = 'fwd' if fwd == 1.0 else 'rev'
+            log_parts.append(f"Peltier: {duty:.1f}% {dir_str}")
+    
+    # Add ring light color to log
+    if bioreactor.is_component_initialized('ring_light') and 'ring_light_R' in sensor_data:
+        r, g, b = sensor_data.get('ring_light_R', 0), sensor_data.get('ring_light_G', 0), sensor_data.get('ring_light_B', 0)
+        if not (np.isnan(r) or np.isnan(g) or np.isnan(b)):
+            log_parts.append(f"Ring: ({int(r)},{int(g)},{int(b)})")
     
     bioreactor.logger.info(f"Sensor readings - {', '.join(log_parts)}")
     

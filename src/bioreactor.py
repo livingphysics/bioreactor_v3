@@ -136,6 +136,28 @@ class Bioreactor():
                 # Remove O2 label if sensor is disabled
                 config.SENSOR_LABELS.pop('o2', None)
             
+            # Auto-populate peltier state labels if peltier_driver is enabled
+            peltier_enabled = init_components.get('peltier_driver', False)
+            if peltier_enabled:
+                if 'peltier_duty' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['peltier_duty'] = 'peltier_duty'
+                if 'peltier_forward' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['peltier_forward'] = 'peltier_forward'
+            else:
+                config.SENSOR_LABELS.pop('peltier_duty', None)
+                config.SENSOR_LABELS.pop('peltier_forward', None)
+            
+            # Auto-populate ring light color labels if ring_light is enabled
+            ring_light_enabled = init_components.get('ring_light', False)
+            if ring_light_enabled:
+                for ch in ('R', 'G', 'B'):
+                    key = f'ring_light_{ch}'
+                    if key not in config.SENSOR_LABELS:
+                        config.SENSOR_LABELS[key] = f'ring_light_{ch}'
+            else:
+                for ch in ('R', 'G', 'B'):
+                    config.SENSOR_LABELS.pop(f'ring_light_{ch}', None)
+            
             # Build fieldnames from SENSOR_LABELS
             # Include both 'time' (timestamp) and 'elapsed_time' (elapsed seconds)
             # Only include sensor labels for components that are actually initialized
@@ -153,6 +175,10 @@ class Bioreactor():
                     component_name = 'optical_density'
                 elif key.startswith('eyespy_'):
                     component_name = 'eyespy_adc'
+                elif key in ('peltier_duty', 'peltier_forward'):
+                    component_name = 'peltier_driver'
+                elif key.startswith('ring_light_'):
+                    component_name = 'ring_light'
                 
                 # Only include if component is initialized (or if we can't determine the component)
                 if component_name is None or init_components.get(component_name, False):
