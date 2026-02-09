@@ -198,7 +198,11 @@ class Bioreactor():
         base_filename = getattr(config, 'DATA_OUT_FILE', 'bioreactor_data.csv') if config else 'bioreactor_data.csv'
         use_timestamp = getattr(config, 'USE_TIMESTAMPED_FILENAME', True) if config else True
         results_package = getattr(config, 'RESULTS_PACKAGE', False) if config else False
-        results_base = getattr(config, 'RESULTS_BASE_DIR', 'src/bioreactor_data') if config else 'src/bioreactor_data'
+        results_base = getattr(config, 'RESULTS_BASE_DIR', 'bioreactor_data') if config else 'bioreactor_data'
+        # Resolve relative to package dir (src/) so e.g. 'bioreactor_data' -> existing src/bioreactor_data
+        if not os.path.isabs(results_base):
+            _src_dir = os.path.dirname(os.path.abspath(__file__))
+            results_base = os.path.normpath(os.path.join(_src_dir, results_base))
         
         if results_package:
             # Create dated directory: results_base/YYYYMMDD_HHMMSS/

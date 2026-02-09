@@ -20,7 +20,7 @@ class Config:
     
     # Results package: put each run in a dated directory with output + copy of script
     RESULTS_PACKAGE: bool = True  # If True, create a dated dir and write output + script copy there
-    RESULTS_BASE_DIR: str = 'src/bioreactor_data'  # Base directory for results packages (dated subdirs created here)
+    RESULTS_BASE_DIR: str = 'bioreactor_data'  # Base dir for results packages (relative to src/); dated subdirs created here
     RUN_SCRIPT_PATH: Optional[str] = None  # Path to script to copy into results package (None = use sys.argv[0] if valid)
     
     # Component Initialization Control
