@@ -6,11 +6,18 @@ This shows how to:
 2. Initialize the bioreactor
 3. Use the components
 4. Schedule recurring jobs
+
+Config file:
+  Use --config /path/to/config.py to load config from a Python file.
+  The file must define a class Config or an instance config (same attributes as src.config_default.Config).
+  Example: python src/example_usage.py --config ./my_config.py
 """
 
-import time
-import sys
+import argparse
+import importlib.util
 import os
+import sys
+import time
 from functools import partial
 
 # Add parent directory to path to allow imports
@@ -20,18 +27,51 @@ from src import Bioreactor, Config
 from src.utils import *
 from src.io import *
 
-# Load default config
-config = Config()
+
+def load_config_from_file(path: str):
+    """Load config from a Python file. File must define 'Config' (class) or 'config' (instance)."""
+    path = os.path.abspath(path)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"Config file not found: {path}")
+    spec = importlib.util.spec_from_file_location("user_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if hasattr(mod, "config"):
+        return getattr(mod, "config")
+    if hasattr(mod, "Config"):
+        return mod.Config()
+    raise ValueError(f"Config file must define 'Config' (class) or 'config' (instance): {path}")
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Run bioreactor example with optional config file.")
+    p.add_argument(
+        "--config", "-c",
+        type=str,
+        default=None,
+        help="Path to a Python config file (must define Config class or config instance)",
+    )
+    return p.parse_args()
+
+
+# Parse --config before loading config
+args = parse_args()
+if args.config:
+    config = load_config_from_file(args.config)
+else:
+    config = Config()
 
 # Override some settings in the configuration
-
 config.LOG_TO_TERMINAL = True  # Print logs to terminal (default: True)
 config.LOG_FILE = 'bioreactor.log'  # Also log to file
+config.USE_TIMESTAMPED_FILENAME = True 
 
-config.USE_TIMESTAMPED_FILENAME: bool = True 
-
-# Initialize bioreactor (script_path is copied into results package when RESULTS_PACKAGE is True)
-with Bioreactor(config, script_path=os.path.abspath(__file__)) as reactor:
+# Initialize bioreactor (script_path and config_path copied into results package when RESULTS_PACKAGE is True)
+with Bioreactor(
+    config,
+    script_path=os.path.abspath(__file__),
+    config_path=os.path.abspath(args.config) if args.config and os.path.isfile(args.config) else None,
+) as reactor:
     # Check if components are initialized
     if reactor.is_component_initialized('temp_sensor'):
         print("Temperature sensors are ready!")
