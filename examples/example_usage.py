@@ -30,6 +30,7 @@ config.LOG_FILE = 'bioreactor.log'  # Also log to file
 
 config.USE_TIMESTAMPED_FILENAME: bool = False 
 
+
 # Initialize bioreactor
 with Bioreactor(config) as reactor:
     # Check if components are initialized
@@ -81,12 +82,12 @@ with Bioreactor(config) as reactor:
     # frequency: time between calls in seconds, or True for continuous
     # duration: how long to run in seconds, or True for indefinite
     jobs = [
-        # Measure and record sensors every 5 seconds
+        # Measure and record sensors every 20 seconds with IR led at 15%
         (partial(measure_and_record_sensors, led_power=15.0), 20, True),  # Read sensors and record to CSV every 5 seconds
         
         # Temperature PID controller - maintains temperature at 37.0°C
         # Run PID controller every 5 seconds
-        (partial(temperature_pid_controller, setpoint=25.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
+        (partial(temperature_pid_controller, setpoint=37.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
         
         # Ring light cycle - turns on at (50,50,50) for 60s, then off for 60s, repeating
         # Check every 1 second to update state
@@ -95,7 +96,7 @@ with Bioreactor(config) as reactor:
         # Balanced flow - maintains balanced inflow/outflow for chemostat mode
         # Sets both inflow and outflow pumps to the same flow rate (2 ml/s)
         # Run every 10 seconds to maintain flow rate
-        # (partial(balanced_flow, pump_name='inflow', ml_per_sec=2.0), 10, True),
+        (partial(balanced_flow, pump_name='inflow', ml_per_sec=2.0), 10, True),
 
     ]
     
