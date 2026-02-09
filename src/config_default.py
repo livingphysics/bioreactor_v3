@@ -50,7 +50,7 @@ class Config:
     # Peltier Driver Configuration (Raspberry Pi 5 GPIO via lgpio)
     PELTIER_PWM_PIN: int = 21 # BCM pin for PWM output
     PELTIER_DIR_PIN: int = 20  # BCM pin for direction control
-    PELTIER_PWM_FREQ: int = 20000  # PWM frequency in Hz
+    PELTIER_PWM_FREQ: int = 1000  # PWM frequency in Hz
 
     # Stirrer Configuration (PWM only)
     STIRRER_PWM_PIN: int = 12  # BCM pin for stirrer PWM output
