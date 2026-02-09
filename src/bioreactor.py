@@ -1,6 +1,8 @@
 import csv
 import logging
 import os
+import shutil
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -13,8 +15,9 @@ from . import components
 class Bioreactor():
     """Class to manage all sensors and operations for the bioreactor"""
     
-    def __init__(self, config=None) -> None:
+    def __init__(self, config=None, script_path: Optional[str] = None) -> None:
         self.cfg = config  # Store config for access in utility functions
+        self._script_path = script_path  # Optional path to run script for results package
         """Initialize bioreactor framework without specific hardware components."""
         
         # Configuration
@@ -194,17 +197,41 @@ class Bioreactor():
         # Get filename configuration
         base_filename = getattr(config, 'DATA_OUT_FILE', 'bioreactor_data.csv') if config else 'bioreactor_data.csv'
         use_timestamp = getattr(config, 'USE_TIMESTAMPED_FILENAME', True) if config else True
+        results_package = getattr(config, 'RESULTS_PACKAGE', False) if config else False
+        results_base = getattr(config, 'RESULTS_BASE_DIR', 'bioreactor_data') if config else 'bioreactor_data'
+        # Resolve relative to package dir (src/) so e.g. 'bioreactor_data' -> existing src/bioreactor_data
+        if not os.path.isabs(results_base):
+            _src_dir = os.path.dirname(os.path.abspath(__file__))
+            results_base = os.path.normpath(os.path.join(_src_dir, results_base))
         
-        # Ensure bioreactor_data directory exists
-        data_dir = 'bioreactor_data'
-        os.makedirs(data_dir, exist_ok=True)
-        
-        # Build filename with or without timestamp
-        if use_timestamp:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            out_file_path = os.path.join(data_dir, f"{timestamp}_{base_filename}")
-        else:
+        if results_package:
+            # Create dated directory: results_base/YYYYMMDD_HHMMSS/
+            timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+            data_dir = os.path.join(results_base, timestamp_str)
+            os.makedirs(data_dir, exist_ok=True)
+            self._results_package_dir = data_dir
+            # CSV filename inside package (no extra timestamp in name; dir is dated)
             out_file_path = os.path.join(data_dir, base_filename)
+            # Copy run script into package
+            script_to_copy = self._script_path or (getattr(config, 'RUN_SCRIPT_PATH', None) if config else None) or (sys.argv[0] if sys.argv else None)
+            if script_to_copy and os.path.isfile(script_to_copy):
+                try:
+                    dest_script = os.path.join(data_dir, os.path.basename(script_to_copy))
+                    shutil.copy2(script_to_copy, dest_script)
+                    self.logger.info(f"Results package: copied script to {dest_script}")
+                except Exception as e:
+                    self.logger.warning(f"Could not copy run script into results package: {e}")
+            elif results_package and script_to_copy:
+                self.logger.warning(f"Results package: script path not a file, not copied: {script_to_copy}")
+        else:
+            self._results_package_dir = None
+            data_dir = 'bioreactor_data'
+            os.makedirs(data_dir, exist_ok=True)
+            if use_timestamp:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                out_file_path = os.path.join(data_dir, f"{timestamp}_{base_filename}")
+            else:
+                out_file_path = os.path.join(data_dir, base_filename)
         
         self.out_file = open(out_file_path, 'w', newline='')
         self.writer = csv.DictWriter(self.out_file, fieldnames=fieldnames)

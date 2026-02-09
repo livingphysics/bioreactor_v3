@@ -18,6 +18,11 @@ class Config:
     DATA_OUT_FILE: str = 'bioreactor_data.csv'
     USE_TIMESTAMPED_FILENAME: bool = True  # If True, adds timestamp prefix (e.g., "20250113_153000_bioreactor_data.csv"). If False, uses base filename only.
     
+    # Results package: put each run in a dated directory with output + copy of script
+    RESULTS_PACKAGE: bool = True  # If True, create a dated dir and write output + script copy there
+    RESULTS_BASE_DIR: str = 'bioreactor_data'  # Base dir for results packages (relative to src/); dated subdirs created here
+    RUN_SCRIPT_PATH: Optional[str] = None  # Path to script to copy into results package (None = use sys.argv[0] if valid)
+    
     # Component Initialization Control
     # Set to True to initialize, False to skip
     INIT_COMPONENTS: dict[str, bool] = {

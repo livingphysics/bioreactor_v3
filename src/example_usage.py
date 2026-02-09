@@ -30,8 +30,8 @@ config.LOG_FILE = 'bioreactor.log'  # Also log to file
 
 config.USE_TIMESTAMPED_FILENAME: bool = False 
 
-# Initialize bioreactor
-with Bioreactor(config) as reactor:
+# Initialize bioreactor (script_path is copied into results package when RESULTS_PACKAGE is True)
+with Bioreactor(config, script_path=os.path.abspath(__file__)) as reactor:
     # Check if components are initialized
     if reactor.is_component_initialized('temp_sensor'):
         print("Temperature sensors are ready!")
