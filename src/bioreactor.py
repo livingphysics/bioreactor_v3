@@ -15,10 +15,9 @@ from . import components
 class Bioreactor():
     """Class to manage all sensors and operations for the bioreactor"""
     
-    def __init__(self, config=None, script_path: Optional[str] = None, config_path: Optional[str] = None) -> None:
+    def __init__(self, config=None, script_path: Optional[str] = None) -> None:
         self.cfg = config  # Store config for access in utility functions
         self._script_path = script_path  # Optional path to run script for results package
-        self._config_path = config_path  # Optional path to config file for results package
         """Initialize bioreactor framework without specific hardware components."""
         
         # Configuration
@@ -224,19 +223,6 @@ class Bioreactor():
                     self.logger.warning(f"Could not copy run script into results package: {e}")
             elif results_package and script_to_copy:
                 self.logger.warning(f"Results package: script path not a file, not copied: {script_to_copy}")
-            # Copy config file into package if one was used
-            config_to_copy = self._config_path or (getattr(config, 'CONFIG_FILE_PATH', None) if config else None)
-            if config_to_copy:
-                config_to_copy = os.path.abspath(config_to_copy)
-            if config_to_copy and os.path.isfile(config_to_copy):
-                try:
-                    dest_config = os.path.join(data_dir, os.path.basename(config_to_copy))
-                    shutil.copy2(config_to_copy, dest_config)
-                    self.logger.info(f"Results package: copied config to {dest_config}")
-                except Exception as e:
-                    self.logger.warning(f"Could not copy config into results package: {e}")
-            elif config_to_copy:
-                self.logger.warning(f"Results package: config path not a file, not copied: {config_to_copy}")
         else:
             self._results_package_dir = None
             # Non-package mode: also write under package-relative dir (src/bioreactor_data)
