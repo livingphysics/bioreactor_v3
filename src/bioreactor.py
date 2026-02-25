@@ -234,13 +234,24 @@ class Bioreactor():
                 if component_name is None or init_components.get(component_name, False):
                     sensor_keys.append(key)
             
-            fieldnames = ['time', 'elapsed_time'] + [config.SENSOR_LABELS[k] for k in sensor_keys]
+            pump_time_labels = []
+            if init_components.get('pumps', False) and hasattr(config, 'PUMPS'):
+                for pname in config.PUMPS.keys():
+                    pump_time_labels.append(f"pump_{pname}_time_s")
+
+            fieldnames = ['time', 'elapsed_time'] + [config.SENSOR_LABELS[k] for k in sensor_keys] + pump_time_labels
         else:
             # Default fieldnames if no config provided
             fieldnames = ['time', 'elapsed_time']
         
+        # Initialize pump run time tracking
+        self.pump_run_times = {}
+        if config and hasattr(config, 'PUMPS') and init_components.get('pumps', False):
+            for pump_name in config.PUMPS.keys():
+                self.pump_run_times[pump_name] = 0.0
+
         self.fieldnames = fieldnames
-        
+
         # Get filename configuration
         # All data/results paths are relative to the directory containing bioreactor.py (src/)
         _package_dir = os.path.dirname(os.path.abspath(__file__))
@@ -289,6 +300,7 @@ class Bioreactor():
                 out_file_path = os.path.join(data_dir, base_filename)
         
         self.out_file = open(out_file_path, 'w', newline='')
+        self.out_file_path = out_file_path
         self.writer = csv.DictWriter(self.out_file, fieldnames=fieldnames)
         self.writer.writeheader()
         self.logger.info(f"Data logging to: {out_file_path}")

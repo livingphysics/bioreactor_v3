@@ -501,7 +501,12 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                 else:
                     label = key
                 csv_row[label] = sensor_data[key]
-        
+
+        # Add cumulative pump run times if tracked
+        if hasattr(bioreactor, 'pump_run_times') and bioreactor.pump_run_times:
+            for pname, total_time in bioreactor.pump_run_times.items():
+                csv_row[f"pump_{pname}_time_s"] = total_time
+
         try:
             # Only write fields that exist in fieldnames to avoid errors
             if hasattr(bioreactor, 'fieldnames'):
@@ -513,10 +518,10 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                 bioreactor.out_file.flush()
         except Exception as e:
             bioreactor.logger.error(f"Error writing to CSV: {e}")
-    
+
     # Build log message dynamically (only include initialized sensors)
     log_parts = []
-    
+
     # Add temperature to log only if temp_sensor is initialized
     if bioreactor.is_component_initialized('temp_sensor') and 'temperature' in sensor_data:
         temp_value = sensor_data.get('temperature', float('nan'))
@@ -968,4 +973,256 @@ def chemostat_mode(
             sensor_index=sensor_index,
             max_duty=max_duty,
         )
+
+
+def _read_last_csv_row(csv_path: str) -> Optional[dict]:
+    """Read the last data row from a CSV file efficiently.
+
+    Opens a separate read handle and seeks to the last 4KB of the file,
+    then parses the final complete row. Safe to call alongside an open
+    write handle as long as the writer calls flush() after each write.
+
+    Returns:
+        dict mapping column names to string values, or None if no data row exists.
+    """
+    import csv as _csv
+    try:
+        with open(csv_path, 'r') as f:
+            f.seek(0, 2)  # seek to end
+            file_size = f.tell()
+            # Read last 4KB (or whole file if smaller)
+            seek_pos = max(0, file_size - 4096)
+            f.seek(seek_pos)
+            tail = f.read()
+
+        lines = tail.strip().split('\n')
+        if len(lines) < 2:
+            # Need at least header + 1 data row if we're at start of file
+            # Re-read from beginning to get the header
+            with open(csv_path, 'r') as f:
+                lines = f.read().strip().split('\n')
+            if len(lines) < 2:
+                return None
+
+        # If we seeked into the middle of the file, the first line is likely
+        # a partial row. We need the header from the start of the file.
+        with open(csv_path, 'r') as f:
+            header_line = f.readline().strip()
+
+        reader = _csv.DictReader([header_line, lines[-1]])
+        for row in reader:
+            return dict(row)
+        return None
+    except (OSError, IOError):
+        return None
+
+
+def turbidostat_ekf_mode(
+    bioreactor,
+    od_setpoint: float,
+    pump_name: str = 'inflow',
+    flow_rate_ml_s: float = 2.0,
+    od_channel: str = 'OD_135_V',
+    R: float = 0.001,
+    Q_growth_rate: float = 5e-7,
+    initial_growth_rate: float = 1.0,
+    initial_P_od: Optional[float] = None,
+    initial_P_r: float = 0.0005**2,
+    pump_distrust_cycles: int = 10,
+    pump_distrust_P_od: Optional[float] = None,
+    pump_duration: float = 5.0,
+    temp_setpoint: Optional[float] = None,
+    kp: float = 12.0,
+    ki: float = 0.015,
+    kd: float = 0.0,
+    dt: Optional[float] = None,
+    sensor_index: int = 0,
+    max_duty: float = 70.0,
+    elapsed: Optional[float] = None,
+) -> None:
+    """
+    Turbidostat mode using an Extended Kalman Filter (Hoffmann et al. 2017).
+
+    Reads the latest OD measurement from the CSV file, filters it through
+    an EKF to estimate true OD and growth rate, and triggers dilution
+    (balanced_flow) when the estimated OD exceeds the setpoint.
+
+    The EKF state vector is [OD, r] where r is the per-cycle multiplicative
+    growth rate (r=1 means no growth). Doubling time is computed as
+    dt_cycle * ln(2) / ln(r).
+
+    Args:
+        bioreactor: Bioreactor instance
+        od_setpoint: Target OD voltage. Pump triggers when estimated OD exceeds this.
+        pump_name: Name of the inflow pump for balanced_flow (default: 'inflow')
+        flow_rate_ml_s: Flow rate in ml/sec for dilution events (default: 2.0)
+        od_channel: CSV column name for the OD reading (default: 'OD_135_V')
+        R: Measurement noise variance (default: 0.001)
+        Q_growth_rate: Process noise variance for growth rate state (default: 5e-7)
+        initial_growth_rate: Initial growth rate estimate (default: 1.0, no growth)
+        initial_P_od: Initial OD covariance. If None, defaults to R.
+        initial_P_r: Initial growth rate covariance (default: 0.0005^2)
+        pump_distrust_cycles: Number of cycles after pumping to inflate OD uncertainty (default: 10)
+        pump_distrust_P_od: Inflated P[0,0] value during distrust. If None, defaults to 10*R.
+        pump_duration: Duration of each dilution event in seconds (default: 5.0)
+        temp_setpoint: Optional temperature setpoint for PID control (default: None)
+        kp: Proportional gain for temperature PID (default: 12.0)
+        ki: Integral gain for temperature PID (default: 0.015)
+        kd: Derivative gain for temperature PID (default: 0.0)
+        dt: Time step for temperature PID. If None, auto-computed.
+        sensor_index: Temperature sensor index (default: 0)
+        max_duty: Maximum peltier duty cycle (default: 70.0)
+        elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
+    """
+    # --- Read latest OD from CSV ---
+    if not hasattr(bioreactor, 'out_file_path'):
+        bioreactor.logger.warning("Turbidostat: no out_file_path on bioreactor")
+        return
+
+    row = _read_last_csv_row(bioreactor.out_file_path)
+    if row is None or od_channel not in row:
+        bioreactor.logger.debug("Turbidostat: no OD data yet, skipping cycle")
+        return
+
+    try:
+        z_k = float(row[od_channel])
+    except (ValueError, TypeError):
+        bioreactor.logger.debug(f"Turbidostat: could not parse OD value '{row.get(od_channel)}'")
+        return
+
+    if np.isnan(z_k):
+        bioreactor.logger.debug("Turbidostat: OD reading is NaN, skipping cycle")
+        return
+
+    # --- Defaults for optional covariance params ---
+    if initial_P_od is None:
+        initial_P_od = R
+    if pump_distrust_P_od is None:
+        pump_distrust_P_od = 10.0 * R
+
+    # --- Initialize EKF state on first valid reading ---
+    if not getattr(bioreactor, '_ekf_initialized', False):
+        bioreactor._ekf_state = np.array([z_k, initial_growth_rate])
+        bioreactor._ekf_P = np.array([
+            [initial_P_od, 0.0],
+            [0.0, initial_P_r],
+        ])
+        bioreactor._ekf_pump_distrust_counter = 0
+        bioreactor._ekf_last_time = elapsed if elapsed is not None else time.time()
+        bioreactor._ekf_initialized = True
+        bioreactor.logger.info(
+            f"Turbidostat EKF initialized: OD={z_k:.4f}, r={initial_growth_rate:.4f}, "
+            f"setpoint={od_setpoint:.4f}"
+        )
+        return
+
+    # --- Compute dt_cycle ---
+    current_time = elapsed if elapsed is not None else time.time()
+    dt_cycle = current_time - bioreactor._ekf_last_time
+    if dt_cycle <= 0:
+        dt_cycle = 1.0  # fallback to avoid division by zero
+    bioreactor._ekf_last_time = current_time
+
+    # --- EKF Predict (Hoffmann et al. 2017, Eqs 4-8) ---
+    od_k = bioreactor._ekf_state[0]
+    r_k = bioreactor._ekf_state[1]
+    P = bioreactor._ekf_P
+
+    # Predicted state: OD grows multiplicatively by r each cycle
+    x_pred = np.array([od_k * r_k, r_k])
+
+    # Jacobian of the state transition
+    F = np.array([
+        [r_k, od_k],
+        [0.0, 1.0],
+    ])
+
+    # Process noise: no noise on OD prediction, only on growth rate
+    Q = np.array([
+        [0.0, 0.0],
+        [0.0, Q_growth_rate],
+    ])
+
+    P_pred = F @ P @ F.T + Q
+
+    # --- Pump distrust: inflate OD uncertainty after dilution ---
+    if bioreactor._ekf_pump_distrust_counter > 0:
+        P_pred[0, 0] = max(P_pred[0, 0], pump_distrust_P_od)
+        bioreactor._ekf_pump_distrust_counter -= 1
+
+    # --- EKF Update (direct observation: H = [1, 0]) ---
+    # Innovation
+    y = z_k - x_pred[0]
+
+    # Innovation covariance
+    S = P_pred[0, 0] + R
+
+    # Kalman gain
+    K = P_pred[:, 0] / S
+
+    # Updated state
+    x_updated = x_pred + K * y
+
+    # Updated covariance: P = (I - K @ H) @ P_pred
+    KH = np.outer(K, np.array([1.0, 0.0]))
+    P_updated = (np.eye(2) - KH) @ P_pred
+
+    # Store updated state
+    bioreactor._ekf_state = x_updated
+    bioreactor._ekf_P = P_updated
+
+    od_est = x_updated[0]
+    r_est = x_updated[1]
+
+    # --- Compute doubling time ---
+    if r_est > 1.0 and dt_cycle > 0:
+        doubling_time = dt_cycle * np.log(2.0) / np.log(r_est)
+    else:
+        doubling_time = float('inf')
+
+    # --- Pump decision ---
+    pumped = False
+    if od_est > od_setpoint:
+        bioreactor.logger.info(
+            f"Turbidostat: OD_est={od_est:.4f} > setpoint={od_setpoint:.4f}, pumping for {pump_duration:.1f}s"
+        )
+        balanced_flow(bioreactor, pump_name, flow_rate_ml_s, duration=pump_duration)
+        pumped = True
+        bioreactor._ekf_pump_distrust_counter = pump_distrust_cycles
+
+        # Track pump run times
+        if hasattr(bioreactor, 'pump_run_times'):
+            if pump_name in bioreactor.pump_run_times:
+                bioreactor.pump_run_times[pump_name] += pump_duration
+            # Also track the converse pump (balanced_flow runs both)
+            if pump_name == 'inflow':
+                converse = 'outflow'
+            elif pump_name == 'outflow':
+                converse = 'inflow'
+            else:
+                converse = None
+            if converse and converse in bioreactor.pump_run_times:
+                bioreactor.pump_run_times[converse] += pump_duration
+
+    # --- Optional temperature PID ---
+    if temp_setpoint is not None:
+        temperature_pid_controller(
+            bioreactor,
+            setpoint=temp_setpoint,
+            kp=kp,
+            ki=ki,
+            kd=kd,
+            dt=dt if dt is not None else dt_cycle,
+            elapsed=elapsed,
+            sensor_index=sensor_index,
+            max_duty=max_duty,
+        )
+
+    # --- Log ---
+    dt_str = f"{doubling_time:.1f}s" if doubling_time != float('inf') else "inf"
+    pump_str = " [PUMPED]" if pumped else ""
+    bioreactor.logger.info(
+        f"Turbidostat: meas={z_k:.4f} est={od_est:.4f} r={r_est:.6f} "
+        f"Td={dt_str} sp={od_setpoint:.4f}{pump_str}"
+    )
 
