@@ -3,3 +3,5 @@ src/.DS_Store
 config.py
 bioreactor.log
 /__pycache__
+tests/
+src/__pycache__
