@@ -1,0 +1,86 @@
+{
+  "CLEAR_LOG_ON_START": true,
+  "CO2_SENSOR_I2C_ADDRESS": null,
+  "CO2_SENSOR_I2C_BUS": 1,
+  "CO2_SENSOR_TYPE": "sensair",
+  "DATA_OUT_FILE": "bioreactor_data.csv",
+  "EYESPY_ADC": {
+    "eyespy1": {
+      "i2c_address": 73,
+      "i2c_bus": 1,
+      "gain": 1.0
+    },
+    "eyespy2": {
+      "i2c_address": 74,
+      "i2c_bus": 1,
+      "gain": 1.0
+    }
+  },
+  "INIT_COMPONENTS": {
+    "i2c": true,
+    "temp_sensor": true,
+    "peltier_driver": true,
+    "stirrer": true,
+    "led": true,
+    "ring_light": true,
+    "optical_density": true,
+    "eyespy_adc": false,
+    "co2_sensor": true,
+    "o2_sensor": false,
+    "pumps": false
+  },
+  "LED_PWM_FREQ": 500,
+  "LED_PWM_PIN": 25,
+  "LOG_FILE": "bioreactor.log",
+  "LOG_FORMAT": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+  "LOG_LEVEL": "INFO",
+  "LOG_TO_TERMINAL": true,
+  "O2_SENSOR_I2C_ADDRESS": null,
+  "O2_SENSOR_I2C_BUS": 1,
+  "OD_ADC_CHANNELS": {
+    "135": "A0",
+    "Ref": "A1",
+    "90": "A2"
+  },
+  "PELTIER_DIR_PIN": 20,
+  "PELTIER_PWM_FREQ": 1000,
+  "PELTIER_PWM_PIN": 21,
+  "PUMPS": {
+    "inflow": {
+      "serial": "00473498",
+      "step_mode": 3,
+      "current_limit": 32,
+      "direction": "forward",
+      "steps_per_ml": 10000000.0
+    },
+    "outflow": {
+      "serial": "00473497",
+      "step_mode": 3,
+      "current_limit": 32,
+      "direction": "forward",
+      "steps_per_ml": 10000000.0
+    }
+  },
+  "RESULTS_BASE_DIR": "bioreactor_data",
+  "RESULTS_PACKAGE": true,
+  "RING_LIGHT_COUNT": 32,
+  "RING_LIGHT_SPI_DEVICE": "/dev/spidev0.0",
+  "RING_LIGHT_SPI_SPEED": 800,
+  "RUN_SCRIPT_PATH": null,
+  "SENSOR_LABELS": {
+    "od_135": "OD_135_V",
+    "od_ref": "OD_Ref_V",
+    "od_90": "OD_90_V",
+    "temperature": "temperature_C",
+    "co2": "CO2_ppm",
+    "peltier_duty": "peltier_duty",
+    "peltier_forward": "peltier_forward",
+    "ring_light_R": "ring_light_R",
+    "ring_light_G": "ring_light_G",
+    "ring_light_B": "ring_light_B"
+  },
+  "STIRRER_DEFAULT_DUTY": 30.0,
+  "STIRRER_PWM_FREQ": 1000,
+  "STIRRER_PWM_PIN": 12,
+  "USE_TIMESTAMPED_FILENAME": false
+}
