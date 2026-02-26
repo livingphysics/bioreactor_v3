@@ -961,32 +961,53 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                             ax.legend(fontsize=9)
 
                 if group_name == 'EKF':
-                    growth_cols = [c for c in columns if c.lower() == 'ekf_growth_rate']
-                    growth_std_col = 'ekf_growth_rate_std'
-                    ax.set_ylabel('Growth rate (r)')
-                    ax.ticklabel_format(axis='y', useOffset=False, style='plain')
+                    ekf_plot_mode = getattr(plot_config, 'EKF_PLOT_MODE', 'doubling_time')
 
-                    for col_idx, col in enumerate(growth_cols):
-                        if col not in data:
+                    if ekf_plot_mode == 'doubling_time':
+                        dt_col = 'ekf_doubling_time_s'
+                        if dt_col not in data:
                             continue
-                        source_values = [data[col][i] for i in source_indices]
-                        valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v) and np.isfinite(v)]
-                        if not valid_indices:
-                            continue
-                        valid_times = [source_times[i] for i in valid_indices]
-                        valid_values = [source_values[i] for i in valid_indices]
-                        ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Growth rate (r)')
+                        ax.set_ylabel('Doubling time (hours)')
+                        ax.ticklabel_format(axis='y', useOffset=False, style='plain')
 
-                        # Plot ±1σ bounds
-                        if growth_std_col in data:
-                            std_values = [data[growth_std_col][i] for i in source_indices]
-                            valid_std = [std_values[i] for i in valid_indices]
-                            upper = [v + s for v, s in zip(valid_values, valid_std)]
-                            lower = [v - s for v, s in zip(valid_values, valid_std)]
-                            ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
-                            ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+                        source_values = [data[dt_col][i] for i in source_indices]
+                        # Convert seconds to hours, filter out inf/NaN
+                        valid_indices = [i for i, v in enumerate(source_values)
+                                         if not np.isnan(v) and np.isfinite(v) and v > 0]
+                        if valid_indices:
+                            valid_times = [source_times[i] for i in valid_indices]
+                            valid_values = [source_values[i] / 3600.0 for i in valid_indices]
+                            ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Doubling time')
+                        ax.legend(fontsize=9)
 
-                    ax.legend(fontsize=9)
+                    else:
+                        # Plot growth rate (r)
+                        growth_cols = [c for c in columns if c.lower() == 'ekf_growth_rate']
+                        growth_std_col = 'ekf_growth_rate_std'
+                        ax.set_ylabel('Growth rate (r)')
+                        ax.ticklabel_format(axis='y', useOffset=False, style='plain')
+
+                        for col_idx, col in enumerate(growth_cols):
+                            if col not in data:
+                                continue
+                            source_values = [data[col][i] for i in source_indices]
+                            valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v) and np.isfinite(v)]
+                            if not valid_indices:
+                                continue
+                            valid_times = [source_times[i] for i in valid_indices]
+                            valid_values = [source_values[i] for i in valid_indices]
+                            ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Growth rate (r)')
+
+                            # Plot ±1σ bounds
+                            if growth_std_col in data:
+                                std_values = [data[growth_std_col][i] for i in source_indices]
+                                valid_std = [std_values[i] for i in valid_indices]
+                                upper = [v + s for v, s in zip(valid_values, valid_std)]
+                                lower = [v - s for v, s in zip(valid_values, valid_std)]
+                                ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
+                                ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+
+                        ax.legend(fontsize=9)
 
         plt.tight_layout()
         plt.draw()
