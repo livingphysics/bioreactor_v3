@@ -753,15 +753,25 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         ax.plot(valid_times, valid_values, style, linewidth=2,
                                label=col, markersize=4 if marker else None)
 
-                    # Overlay EKF OD estimate if available
+                    # Overlay EKF OD estimate with ±1σ uncertainty if available
                     ekf_od_col = 'ekf_od_est'
+                    ekf_od_std_col = 'ekf_od_std'
                     if ekf_od_col in data:
                         source_values = [data[ekf_od_col][i] for i in source_indices]
                         valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v) and np.isfinite(v)]
                         if valid_indices:
                             valid_times = [source_times[i] for i in valid_indices]
                             valid_values = [source_values[i] for i in valid_indices]
-                            ax.plot(valid_times, valid_values, 'r--', linewidth=2, label='EKF OD estimate')
+                            ax.plot(valid_times, valid_values, 'r-', linewidth=2, label='EKF OD estimate')
+
+                            # Plot ±1σ bounds
+                            if ekf_od_std_col in data:
+                                std_values = [data[ekf_od_std_col][i] for i in source_indices]
+                                valid_std = [std_values[i] for i in valid_indices]
+                                upper = [v + s for v, s in zip(valid_values, valid_std)]
+                                lower = [v - s for v, s in zip(valid_values, valid_std)]
+                                ax.plot(valid_times, upper, 'r--', linewidth=1, alpha=0.5, label='EKF ±1σ')
+                                ax.plot(valid_times, lower, 'r--', linewidth=1, alpha=0.5)
 
                     ax.legend(fontsize=9)
 
@@ -951,7 +961,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                             ax.legend(fontsize=9)
 
                 if group_name == 'EKF':
-                    growth_cols = [c for c in columns if 'growth_rate' in c.lower()]
+                    growth_cols = [c for c in columns if c.lower() == 'ekf_growth_rate']
+                    growth_std_col = 'ekf_growth_rate_std'
                     ax.set_ylabel('Growth rate (r)')
                     ax.ticklabel_format(axis='y', useOffset=False, style='plain')
 
@@ -965,6 +976,15 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         valid_times = [source_times[i] for i in valid_indices]
                         valid_values = [source_values[i] for i in valid_indices]
                         ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Growth rate (r)')
+
+                        # Plot ±1σ bounds
+                        if growth_std_col in data:
+                            std_values = [data[growth_std_col][i] for i in source_indices]
+                            valid_std = [std_values[i] for i in valid_indices]
+                            upper = [v + s for v, s in zip(valid_values, valid_std)]
+                            lower = [v - s for v, s in zip(valid_values, valid_std)]
+                            ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
+                            ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
 
                     ax.legend(fontsize=9)
 

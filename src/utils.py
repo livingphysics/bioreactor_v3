@@ -1108,10 +1108,14 @@ def turbidostat_ekf_mode(
         doubling_time = float('inf')
 
     # Store estimates so measure_and_record_sensors can write them to CSV
+    od_std = np.sqrt(P_updated[0, 0])
+    r_std = np.sqrt(P_updated[1, 1])
     bioreactor.ekf_estimates = {
         'ekf_od_est': od_est,
         'ekf_growth_rate': r_est,
         'ekf_doubling_time_s': doubling_time,
+        'ekf_od_std': od_std,
+        'ekf_growth_rate_std': r_std,
     }
 
     # --- Pump decision ---
