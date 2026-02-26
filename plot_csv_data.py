@@ -940,6 +940,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 if group_name == 'EKF':
                     growth_cols = [c for c in columns if 'growth_rate' in c.lower()]
                     ax.set_ylabel('Growth rate (r)')
+                    ax.ticklabel_format(axis='y', useOffset=False, style='plain')
 
                     for col_idx, col in enumerate(growth_cols):
                         if col not in data:
