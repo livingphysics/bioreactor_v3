@@ -426,10 +426,15 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             'Gases': [],
             'Time': []
         }
-        
+
+        exclude_patterns = [p.lower() for p in getattr(plot_config, 'EXCLUDE_COLUMNS', [])]
+
         for header in headers:
             # Skip 'source' column (used for identifying remote servers)
             if header.lower() == 'source':
+                continue
+            # Skip columns matching exclude patterns
+            if any(p in header.lower() for p in exclude_patterns):
                 continue
             header_lower = header.lower()
             if header_lower == 'time' or header_lower == 'elapsed_time':
@@ -748,9 +753,17 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         ax.plot(valid_times, valid_values, style, linewidth=2,
                                label=col, markersize=4 if marker else None)
 
-                    # Show legend if we have multiple OD columns
-                    if len(columns) > 1:
-                        ax.legend(fontsize=9)
+                    # Overlay EKF OD estimate if available
+                    ekf_od_col = 'ekf_od_est'
+                    if ekf_od_col in data:
+                        source_values = [data[ekf_od_col][i] for i in source_indices]
+                        valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v) and np.isfinite(v)]
+                        if valid_indices:
+                            valid_times = [source_times[i] for i in valid_indices]
+                            valid_values = [source_values[i] for i in valid_indices]
+                            ax.plot(valid_times, valid_values, 'r--', linewidth=2, label='EKF OD estimate')
+
+                    ax.legend(fontsize=9)
 
                 elif group_name == 'Temperature':
                     ax.set_ylabel('Temperature (°C)')
