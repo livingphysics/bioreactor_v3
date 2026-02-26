@@ -434,6 +434,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             header_lower = header.lower()
             if header_lower == 'time' or header_lower == 'elapsed_time':
                 groups['Time'].append(header)
+            elif header_lower.startswith('ekf_'):
+                # EKF estimate columns (ekf_od_est, ekf_growth_rate, ekf_doubling_time_s)
+                groups.setdefault('EKF', []).append(header)
             elif 'od' in header_lower or 'eyespy' in header_lower:
                 # Group both OD and eyespy voltage columns together
                 # Only include voltage columns (not raw ADC values)
@@ -923,17 +926,66 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         # Ensure formatter is applied (reapply after plotting in case it was reset)
                         o2_axis.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                 
-                # Show legend if we have multiple columns (combine CO2 and O2 legends)
-                all_columns = co2_columns + o2_columns
-                if len(all_columns) > 1:
-                    # Combine legends from both axes if dual-axis, otherwise use single axis
-                    if ax2 is not None:
-                        lines1, labels1 = ax.get_legend_handles_labels()
-                        lines2, labels2 = ax2.get_legend_handles_labels()
+                    # Show legend if we have multiple columns (combine CO2 and O2 legends)
+                    all_columns = co2_columns + o2_columns
+                    if len(all_columns) > 1:
+                        # Combine legends from both axes if dual-axis, otherwise use single axis
+                        if ax2 is not None:
+                            lines1, labels1 = ax.get_legend_handles_labels()
+                            lines2, labels2 = ax2.get_legend_handles_labels()
+                            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=9, loc='best')
+                        else:
+                            ax.legend(fontsize=9)
+
+                if group_name == 'EKF':
+                    # EKF estimates: plot growth rate on primary axis, OD estimate on secondary
+                    growth_cols = [c for c in columns if 'growth_rate' in c.lower()]
+                    od_est_cols = [c for c in columns if 'od_est' in c.lower()]
+
+                    ax.set_ylabel('Growth rate (r)')
+
+                    # Plot growth rate
+                    for col_idx, col in enumerate(growth_cols):
+                        if col not in data:
+                            continue
+                        source_values = [data[col][i] for i in source_indices]
+                        valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v) and np.isfinite(v)]
+                        if not valid_indices:
+                            continue
+                        valid_times = [source_times[i] for i in valid_indices]
+                        valid_values = [source_values[i] for i in valid_indices]
+                        ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Growth rate (r)')
+
+                    # Plot OD estimate on secondary axis if present
+                    if od_est_cols:
+                        twin_key = (source_idx, group_idx)
+                        if twin_key not in twin_axes:
+                            ax2 = ax.twinx()
+                            twin_axes[twin_key] = ax2
+                        else:
+                            ax2 = twin_axes[twin_key]
+                        ax2.set_ylabel('EKF OD estimate (V)', color='g')
+                        ax2.tick_params(axis='y', labelcolor='g')
+
+                        for col in od_est_cols:
+                            if col not in data:
+                                continue
+                            source_values = [data[col][i] for i in source_indices]
+                            valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v) and np.isfinite(v)]
+                            if not valid_indices:
+                                continue
+                            valid_times = [source_times[i] for i in valid_indices]
+                            valid_values = [source_values[i] for i in valid_indices]
+                            ax2.plot(valid_times, valid_values, 'g-', linewidth=2, label='OD estimate')
+
+                    # Combine legends
+                    lines1, labels1 = ax.get_legend_handles_labels()
+                    if od_est_cols and (source_idx, group_idx) in twin_axes:
+                        lines2, labels2 = twin_axes[(source_idx, group_idx)].get_legend_handles_labels()
                         ax.legend(lines1 + lines2, labels1 + labels2, fontsize=9, loc='best')
-                    else:
+                    elif lines1:
                         ax.legend(fontsize=9)
-        
+
         plt.tight_layout()
         plt.draw()
         plt.pause(0.1)  # Increased pause time to ensure display updates
