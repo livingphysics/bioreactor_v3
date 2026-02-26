@@ -7,218 +7,10 @@ These functions are designed to be used with bioreactor.run() for scheduled task
 import time
 import logging
 from typing import Union, Optional
-from collections import deque
 from datetime import datetime
-import matplotlib.pyplot as plt
 import numpy as np
 
 logger = logging.getLogger("Bioreactor.Utils")
-
-# Global storage for plotting data
-# OD channels will be dynamically added based on config
-_plot_data = {
-    'time': deque(maxlen=1000),
-    'temperature': deque(maxlen=1000),
-}
-PLOT_DATA_MAXLEN = 1000
-
-# Global figure and axes for plotting
-_plot_fig = None
-_plot_axes = None
-
-
-def measure_and_plot_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
-    """
-    Measure, record, and plot sensor data from OD channels and Temperature.
-    
-    This composite function:
-    1. Reads all sensor values (dynamically based on config)
-    2. Writes data to CSV file (field names from config)
-    3. Updates live plots dynamically based on configured OD channels
-    
-    Args:
-        bioreactor: Bioreactor instance
-        elapsed: Elapsed time in seconds (if None, uses time since start)
-        led_power: LED power percentage for OD measurements (default: 30.0)
-        averaging_duration: Duration in seconds for averaging OD measurements (default: 0.5)
-        
-    Returns:
-        dict: Dictionary with all sensor readings
-    """
-    global _plot_fig, _plot_axes
-    
-    # Import IO functions
-    from .io import get_temperature, read_voltage, measure_od
-    
-    # Get elapsed time
-    if elapsed is None:
-        if not hasattr(bioreactor, '_start_time'):
-            bioreactor._start_time = time.time()
-        elapsed = time.time() - bioreactor._start_time
-    
-    # Get config
-    config = getattr(bioreactor, 'cfg', None)
-    
-    # Get OD channel names from config (keys of OD_ADC_CHANNELS dict)
-    od_channel_names = []
-    if config and hasattr(config, 'OD_ADC_CHANNELS'):
-        od_channel_names = list(config.OD_ADC_CHANNELS.keys())
-    elif hasattr(bioreactor, 'od_channels'):
-        # Fallback: use channel names from initialized od_channels
-        od_channel_names = list(bioreactor.od_channels.keys())
-    
-    # Initialize plot data storage for OD channels dynamically
-    for ch_name in od_channel_names:
-        plot_key = f"od_{ch_name.lower()}"
-        if plot_key not in _plot_data:
-            _plot_data[plot_key] = deque(maxlen=PLOT_DATA_MAXLEN)
-    
-    # Read sensors
-    sensor_data = {'elapsed_time': elapsed}
-    
-    # Read Temperature
-    temp_value = get_temperature(bioreactor, sensor_index=0)
-    if not np.isnan(temp_value):
-        sensor_data['temperature'] = temp_value
-        _plot_data['temperature'].append(temp_value)
-    else:
-        sensor_data['temperature'] = float('nan')
-        _plot_data['temperature'].append(float('nan'))
-    
-    # Read OD channels dynamically based on config
-    if bioreactor.is_component_initialized('led') and bioreactor.is_component_initialized('optical_density'):
-        # Measure OD with LED on
-        od_results = measure_od(bioreactor, led_power=led_power, averaging_duration=averaging_duration, channel_name='all')
-        if od_results and od_channel_names:
-            for ch_name in od_channel_names:
-                plot_key = f"od_{ch_name.lower()}"
-                od_value = od_results.get(ch_name, None)
-                if od_value is not None:
-                    sensor_data[plot_key] = od_value
-                    _plot_data[plot_key].append(od_value)
-                else:
-                    sensor_data[plot_key] = float('nan')
-                    _plot_data[plot_key].append(float('nan'))
-        else:
-            # No results, set all to NaN
-            for ch_name in od_channel_names:
-                plot_key = f"od_{ch_name.lower()}"
-                sensor_data[plot_key] = float('nan')
-                _plot_data[plot_key].append(float('nan'))
-    else:
-        # Try reading without LED if OD sensor is available but LED is not
-        if bioreactor.is_component_initialized('optical_density') and od_channel_names:
-            for ch_name in od_channel_names:
-                plot_key = f"od_{ch_name.lower()}"
-                od_value = read_voltage(bioreactor, ch_name)
-                sensor_data[plot_key] = od_value if od_value is not None else float('nan')
-                _plot_data[plot_key].append(sensor_data[plot_key])
-        else:
-            # No OD available, set all to NaN
-            for ch_name in od_channel_names:
-                plot_key = f"od_{ch_name.lower()}"
-                sensor_data[plot_key] = float('nan')
-                _plot_data[plot_key].append(float('nan'))
-    
-    # Add time to plot data
-    _plot_data['time'].append(elapsed)
-    
-    # Write to CSV
-    if hasattr(bioreactor, 'writer') and bioreactor.writer:
-        # Get current timestamp
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        csv_row = {
-            'time': current_time,  # Actual timestamp
-            'elapsed_time': elapsed  # Elapsed seconds since start
-        }
-        
-        # Add temperature with config label if available
-        if config and hasattr(config, 'SENSOR_LABELS'):
-            temp_label = config.SENSOR_LABELS.get('temperature', 'temperature_C')
-            csv_row[temp_label] = sensor_data['temperature']
-        else:
-            csv_row['temperature'] = sensor_data['temperature']
-        
-        # Add OD data dynamically using config labels or auto-generate
-        for ch_name in od_channel_names:
-            plot_key = f"od_{ch_name.lower()}"
-            if plot_key in sensor_data:
-                # Try to get label from SENSOR_LABELS first
-                if config and hasattr(config, 'SENSOR_LABELS'):
-                    # Try multiple possible label keys
-                    label = (config.SENSOR_LABELS.get(plot_key) or 
-                            config.SENSOR_LABELS.get(f"od_{ch_name}") or
-                            config.SENSOR_LABELS.get(f"od_{ch_name.lower()}") or
-                            config.SENSOR_LABELS.get(f"od_{ch_name.upper()}") or
-                            f"OD_{ch_name}_V")
-                else:
-                    # Auto-generate label
-                    label = f"OD_{ch_name}_V"
-                csv_row[label] = sensor_data[plot_key]
-        
-        try:
-            # Only write fields that exist in fieldnames to avoid errors
-            if hasattr(bioreactor, 'fieldnames'):
-                filtered_row = {k: v for k, v in csv_row.items() if k in bioreactor.fieldnames}
-                bioreactor.writer.writerow(filtered_row)
-            else:
-                bioreactor.writer.writerow(csv_row)
-            if hasattr(bioreactor, 'out_file'):
-                bioreactor.out_file.flush()
-        except Exception as e:
-            bioreactor.logger.error(f"Error writing to CSV: {e}")
-    
-    # Update plots
-    if len(_plot_data['time']) > 1:
-        # Initialize figure if needed
-        if _plot_fig is None:
-            _plot_fig, _plot_axes = plt.subplots(1, 2, figsize=(14, 5))
-            _plot_fig.suptitle('Live Sensor Monitoring', fontsize=14)
-            plt.ion()  # Turn on interactive mode
-            plt.show(block=False)
-        
-        # Left: Temperature
-        ax1 = _plot_axes[0]
-        ax1.clear()
-        ax1.set_title('Temperature')
-        ax1.set_xlabel('Time (seconds)')
-        ax1.set_ylabel('Temperature (°C)')
-        ax1.grid(True, alpha=0.3)
-        if len(_plot_data['temperature']) > 0:
-            ax1.plot(list(_plot_data['time']), list(_plot_data['temperature']), 'g-', linewidth=2, label='Temperature')
-        ax1.legend()
-        
-        # Right: OD voltages (dynamically plot all configured channels)
-        ax2 = _plot_axes[1]
-        ax2.clear()
-        ax2.set_title('Optical Density Voltages')
-        ax2.set_xlabel('Time (seconds)')
-        ax2.set_ylabel('Voltage (V)')
-        ax2.grid(True, alpha=0.3)
-        
-        # Plot colors for different channels
-        colors = ['m', 'c', 'b', 'r', 'g', 'y', 'k']
-        for idx, ch_name in enumerate(od_channel_names):
-            plot_key = f"od_{ch_name.lower()}"
-            if plot_key in _plot_data and len(_plot_data[plot_key]) > 0:
-                color = colors[idx % len(colors)]
-                ax2.plot(list(_plot_data['time']), list(_plot_data[plot_key]), 
-                        f'{color}-', linewidth=2, label=ch_name)
-        ax2.legend()
-        
-        plt.tight_layout()
-        plt.draw()
-        plt.pause(0.01)  # Small pause to update display
-    
-    # Build log message dynamically
-    log_parts = [f"Temp: {sensor_data.get('temperature', 'N/A'):.2f}°C"]
-    for ch_name in od_channel_names:
-        plot_key = f"od_{ch_name.lower()}"
-        if plot_key in sensor_data:
-            log_parts.append(f"OD {ch_name}: {sensor_data.get(plot_key, 'N/A'):.4f}V")
-    bioreactor.logger.info(f"Sensor readings - {', '.join(log_parts)}")
-    
-    return sensor_data
 
 
 def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
@@ -506,6 +298,11 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         if hasattr(bioreactor, 'pump_run_times') and bioreactor.pump_run_times:
             for pname, total_time in bioreactor.pump_run_times.items():
                 csv_row[f"pump_{pname}_time_s"] = total_time
+
+        # Add EKF estimates if turbidostat is running
+        if hasattr(bioreactor, 'ekf_estimates'):
+            for key, value in bioreactor.ekf_estimates.items():
+                csv_row[key] = value
 
         try:
             # Only write fields that exist in fieldnames to avoid errors
@@ -975,6 +772,127 @@ def chemostat_mode(
         )
 
 
+def independent_flow(
+    bioreactor,
+    pump_name: str,
+    ml_per_sec: float,
+    duration: float,
+    converse_duration: Optional[float] = None,
+    elapsed: Optional[float] = None,
+) -> None:
+    """
+    Run a pump pair (inflow/outflow) at the same flow rate but with independent durations.
+
+    Like balanced_flow, this identifies the converse pump automatically from the
+    pump_name. Both pumps are started at ml_per_sec, then the shorter-duration pump
+    is stopped first and the longer-duration pump is stopped after its full duration.
+
+    Args:
+        bioreactor: Bioreactor instance
+        pump_name: Name of the primary pump (e.g., 'inflow')
+        ml_per_sec: Flow rate in ml/sec for both pumps
+        duration: Duration in seconds for the primary pump
+        converse_duration: Duration in seconds for the converse pump.
+                          If None, defaults to the same as duration (balanced).
+        elapsed: Elapsed time (unused, for compatibility with job functions)
+    """
+    from .io import change_pump
+
+    if converse_duration is None:
+        converse_duration = duration
+
+    if not bioreactor.is_component_initialized('pumps'):
+        bioreactor.logger.warning("Pumps not initialized; cannot set independent flow")
+        return
+
+    if not hasattr(bioreactor, 'pumps'):
+        bioreactor.logger.warning("Pumps not available")
+        return
+
+    # Determine the converse pump name
+    if pump_name == 'inflow':
+        converse_name = 'outflow'
+    elif pump_name == 'outflow':
+        converse_name = 'inflow'
+    else:
+        if pump_name.endswith('_in') or pump_name.endswith('_inflow'):
+            base = pump_name.rsplit('_', 1)[0] if '_' in pump_name else pump_name
+            converse_name = f"{base}_out" if not base.endswith('out') else f"{base}_outflow"
+        elif pump_name.endswith('_out') or pump_name.endswith('_outflow'):
+            base = pump_name.rsplit('_', 1)[0] if '_' in pump_name else pump_name
+            converse_name = f"{base}_in" if not base.endswith('in') else f"{base}_inflow"
+        else:
+            bioreactor.logger.warning(
+                f"Cannot determine converse pump for '{pump_name}'. "
+                f"Running only the specified pump. Available pumps: {list(bioreactor.pumps.keys())}"
+            )
+            try:
+                change_pump(bioreactor, pump_name, ml_per_sec)
+                if duration > 0:
+                    time.sleep(duration)
+                    change_pump(bioreactor, pump_name, 0.0)
+                    bioreactor.logger.info(f"Pump {pump_name} stopped after {duration:.2f} seconds")
+            except Exception as e:
+                bioreactor.logger.error(f"Error setting pump {pump_name}: {e}")
+            return
+
+    # Check if both pumps exist
+    if pump_name not in bioreactor.pumps:
+        bioreactor.logger.error(f"Pump '{pump_name}' not found. Available: {list(bioreactor.pumps.keys())}")
+        return
+
+    if converse_name not in bioreactor.pumps:
+        bioreactor.logger.warning(
+            f"Converse pump '{converse_name}' not found. "
+            f"Running only '{pump_name}'. Available pumps: {list(bioreactor.pumps.keys())}"
+        )
+        try:
+            change_pump(bioreactor, pump_name, ml_per_sec)
+            if duration > 0:
+                time.sleep(duration)
+                change_pump(bioreactor, pump_name, 0.0)
+                bioreactor.logger.info(f"Pump {pump_name} stopped after {duration:.2f} seconds")
+        except Exception as e:
+            bioreactor.logger.error(f"Error setting pump {pump_name}: {e}")
+        return
+
+    if duration <= 0 and converse_duration <= 0:
+        bioreactor.logger.warning("Both durations must be positive. Ignoring.")
+        return
+
+    try:
+        # Start both pumps
+        change_pump(bioreactor, pump_name, ml_per_sec)
+        change_pump(bioreactor, converse_name, ml_per_sec)
+
+        short_dur = min(duration, converse_duration)
+        long_dur = max(duration, converse_duration)
+        short_pump = pump_name if duration <= converse_duration else converse_name
+        long_pump = converse_name if duration <= converse_duration else pump_name
+
+        bioreactor.logger.info(
+            f"Independent flow: {pump_name}={duration:.2f}s, {converse_name}={converse_duration:.2f}s "
+            f"at {ml_per_sec:.4f} ml/sec"
+        )
+
+        # Sleep until the shorter pump should stop
+        if short_dur > 0:
+            time.sleep(short_dur)
+        change_pump(bioreactor, short_pump, 0.0)
+
+        # Sleep the remaining time for the longer pump
+        remaining = long_dur - short_dur
+        if remaining > 0:
+            time.sleep(remaining)
+        change_pump(bioreactor, long_pump, 0.0)
+
+        bioreactor.logger.info(
+            f"Independent flow: {pump_name} and {converse_name} stopped"
+        )
+    except Exception as e:
+        bioreactor.logger.error(f"Failed to set independent flow: {e}")
+
+
 def _read_last_csv_row(csv_path: str) -> Optional[dict]:
     """Read the last data row from a CSV file efficiently.
 
@@ -1045,7 +963,10 @@ def turbidostat_ekf_mode(
 
     Reads the latest OD measurement from the CSV file, filters it through
     an EKF to estimate true OD and growth rate, and triggers dilution
-    (balanced_flow) when the estimated OD exceeds the setpoint.
+    (independent_flow) when the estimated OD exceeds the setpoint.
+
+    When diluting, the outflow pump runs for 1.1x the inflow pump duration
+    to ensure the vessel does not overfill.
 
     The EKF state vector is [OD, r] where r is the per-cycle multiplicative
     growth rate (r=1 means no growth). Doubling time is computed as
@@ -1054,7 +975,7 @@ def turbidostat_ekf_mode(
     Args:
         bioreactor: Bioreactor instance
         od_setpoint: Target OD voltage. Pump triggers when estimated OD exceeds this.
-        pump_name: Name of the inflow pump for balanced_flow (default: 'inflow')
+        pump_name: Name of the inflow pump for independent_flow (default: 'inflow')
         flow_rate_ml_s: Flow rate in ml/sec for dilution events (default: 2.0)
         od_channel: CSV column name for the OD reading (default: 'OD_135_V')
         R: Measurement noise variance (default: 0.001)
@@ -1064,7 +985,8 @@ def turbidostat_ekf_mode(
         initial_P_r: Initial growth rate covariance (default: 0.0005^2)
         pump_distrust_cycles: Number of cycles after pumping to inflate OD uncertainty (default: 10)
         pump_distrust_P_od: Inflated P[0,0] value during distrust. If None, defaults to 10*R.
-        pump_duration: Duration of each dilution event in seconds (default: 5.0)
+        pump_duration: Duration of the inflow pump per dilution event in seconds (default: 5.0).
+                      The outflow pump runs for 1.1x this duration.
         temp_setpoint: Optional temperature setpoint for PID control (default: None)
         kp: Proportional gain for temperature PID (default: 12.0)
         ki: Integral gain for temperature PID (default: 0.015)
@@ -1180,13 +1102,25 @@ def turbidostat_ekf_mode(
     else:
         doubling_time = float('inf')
 
+    # Store estimates so measure_and_record_sensors can write them to CSV
+    bioreactor.ekf_estimates = {
+        'ekf_od_est': od_est,
+        'ekf_growth_rate': r_est,
+        'ekf_doubling_time_s': doubling_time,
+    }
+
     # --- Pump decision ---
     pumped = False
     if od_est > od_setpoint:
+        converse_duration = pump_duration * 1.1
         bioreactor.logger.info(
-            f"Turbidostat: OD_est={od_est:.4f} > setpoint={od_setpoint:.4f}, pumping for {pump_duration:.1f}s"
+            f"Turbidostat: OD_est={od_est:.4f} > setpoint={od_setpoint:.4f}, "
+            f"pumping {pump_name}={pump_duration:.1f}s, outflow={converse_duration:.1f}s"
         )
-        balanced_flow(bioreactor, pump_name, flow_rate_ml_s, duration=pump_duration)
+        independent_flow(
+            bioreactor, pump_name, flow_rate_ml_s,
+            duration=pump_duration, converse_duration=converse_duration,
+        )
         pumped = True
         bioreactor._ekf_pump_distrust_counter = pump_distrust_cycles
 
@@ -1194,7 +1128,7 @@ def turbidostat_ekf_mode(
         if hasattr(bioreactor, 'pump_run_times'):
             if pump_name in bioreactor.pump_run_times:
                 bioreactor.pump_run_times[pump_name] += pump_duration
-            # Also track the converse pump (balanced_flow runs both)
+            # Converse pump runs for 1.1x duration
             if pump_name == 'inflow':
                 converse = 'outflow'
             elif pump_name == 'outflow':
@@ -1202,7 +1136,7 @@ def turbidostat_ekf_mode(
             else:
                 converse = None
             if converse and converse in bioreactor.pump_run_times:
-                bioreactor.pump_run_times[converse] += pump_duration
+                bioreactor.pump_run_times[converse] += converse_duration
 
     # --- Optional temperature PID ---
     if temp_setpoint is not None:

@@ -239,7 +239,9 @@ class Bioreactor():
                 for pname in config.PUMPS.keys():
                     pump_time_labels.append(f"pump_{pname}_time_s")
 
-            fieldnames = ['time', 'elapsed_time'] + [config.SENSOR_LABELS[k] for k in sensor_keys] + pump_time_labels
+            ekf_labels = ['ekf_od_est', 'ekf_growth_rate', 'ekf_doubling_time_s']
+
+            fieldnames = ['time', 'elapsed_time'] + [config.SENSOR_LABELS[k] for k in sensor_keys] + pump_time_labels + ekf_labels
         else:
             # Default fieldnames if no config provided
             fieldnames = ['time', 'elapsed_time']
