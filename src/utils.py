@@ -781,11 +781,11 @@ def independent_flow(
     elapsed: Optional[float] = None,
 ) -> None:
     """
-    Run a pump pair (inflow/outflow) at the same flow rate but with independent durations.
+    Run a pump pair (inflow/outflow) sequentially at the same flow rate but with independent durations.
 
     Like balanced_flow, this identifies the converse pump automatically from the
-    pump_name. Both pumps are started at ml_per_sec, then the shorter-duration pump
-    is stopped first and the longer-duration pump is stopped after its full duration.
+    pump_name. The primary pump (inflow) runs first for its full duration, then the
+    converse pump (outflow) runs for its full duration.
 
     Args:
         bioreactor: Bioreactor instance
@@ -861,33 +861,25 @@ def independent_flow(
         return
 
     try:
-        # Start both pumps
-        change_pump(bioreactor, pump_name, ml_per_sec)
-        change_pump(bioreactor, converse_name, ml_per_sec)
-
-        short_dur = min(duration, converse_duration)
-        long_dur = max(duration, converse_duration)
-        short_pump = pump_name if duration <= converse_duration else converse_name
-        long_pump = converse_name if duration <= converse_duration else pump_name
-
         bioreactor.logger.info(
-            f"Independent flow: {pump_name}={duration:.2f}s, {converse_name}={converse_duration:.2f}s "
+            f"Independent flow: {pump_name}={duration:.2f}s then {converse_name}={converse_duration:.2f}s "
             f"at {ml_per_sec:.4f} ml/sec"
         )
 
-        # Sleep until the shorter pump should stop
-        if short_dur > 0:
-            time.sleep(short_dur)
-        change_pump(bioreactor, short_pump, 0.0)
+        # Run inflow first
+        change_pump(bioreactor, pump_name, ml_per_sec)
+        if duration > 0:
+            time.sleep(duration)
+        change_pump(bioreactor, pump_name, 0.0)
 
-        # Sleep the remaining time for the longer pump
-        remaining = long_dur - short_dur
-        if remaining > 0:
-            time.sleep(remaining)
-        change_pump(bioreactor, long_pump, 0.0)
+        # Then run outflow
+        change_pump(bioreactor, converse_name, ml_per_sec)
+        if converse_duration > 0:
+            time.sleep(converse_duration)
+        change_pump(bioreactor, converse_name, 0.0)
 
         bioreactor.logger.info(
-            f"Independent flow: {pump_name} and {converse_name} stopped"
+            f"Independent flow: {pump_name} and {converse_name} complete"
         )
     except Exception as e:
         bioreactor.logger.error(f"Failed to set independent flow: {e}")
@@ -996,6 +988,19 @@ def turbidostat_ekf_mode(
         max_duty: Maximum peltier duty cycle (default: 70.0)
         elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
     """
+    # --- Check job interval vs pump duration ---
+    # Total pump time is inflow + outflow (sequential): pump_duration + pump_duration * 1.1
+    total_pump_time = pump_duration + pump_duration * 1.1
+    if not getattr(bioreactor, '_ekf_interval_checked', False):
+        if elapsed is not None and hasattr(bioreactor, '_ekf_last_time'):
+            job_interval = elapsed - bioreactor._ekf_last_time
+            if job_interval > 0 and job_interval < 2 * total_pump_time:
+                bioreactor.logger.warning(
+                    f"Turbidostat: job interval ({job_interval:.1f}s) is less than 2x total pump time "
+                    f"({2 * total_pump_time:.1f}s). Increase job interval to avoid overlap."
+                )
+            bioreactor._ekf_interval_checked = True
+
     # --- Read latest OD from CSV ---
     if not hasattr(bioreactor, 'out_file_path'):
         bioreactor.logger.warning("Turbidostat: no out_file_path on bioreactor")
