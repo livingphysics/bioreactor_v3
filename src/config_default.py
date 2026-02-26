@@ -77,13 +77,13 @@ class Config:
     # Supports multiple eyespy boards, each at a different I2C address
     # Each eyespy board is a single-channel ADS1114 ADC
     EYESPY_ADC: dict = {
-        'eyespy1': {
+        'ref': {
             'i2c_address': 0x49,  # I2C address (default for eyespy/pd2)
             'i2c_bus': 1,  # I2C bus number (typically 1 for /dev/i2c-1)
             'gain': 1.0,  # PGA gain: 2/3, 1.0, 2.0, 4.0, 8.0, 16.0 (default: 1.0 = ±4.096 V)
         },
         # Add more eyespy boards as needed:
-        'eyespy2': {
+        'sct1': {
             'i2c_address': 0x4a,  # Different I2C address
             'i2c_bus': 1,
             'gain': 1.0,
