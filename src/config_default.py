@@ -113,14 +113,14 @@ class Config:
     PUMPS: dict[str, dict[str, Union[str, int, float]]] = {
         'inflow': {
             'serial': '00473498',  # Replace with your pump's serial number
-            'step_mode': 3,  # Step mode (0-3, typically 3 for microstepping)
+            'step_mode': 2,  # Step mode (0-3, typically 3 for microstepping)
             'current_limit': 32,  # Current limit in units (check TicUSB docs)
             'direction': 'forward',  # Direction: 'forward' or 'reverse'
             'steps_per_ml': 10000000.0,  # Steps per ml conversion factor (calibrate for this pump)
         },
         'outflow': {
             'serial': '00473497',  # Replace with your pump's serial number
-            'step_mode': 3,
+            'step_mode': 2,
             'current_limit': 32,
             'direction': 'forward',  # Direction: 'forward' or 'reverse'
             'steps_per_ml': 10000000.0,  # Steps per ml conversion factor (calibrate for this pump)
