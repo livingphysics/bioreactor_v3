@@ -96,7 +96,7 @@ with Bioreactor(config) as reactor:
             od_setpoint=2.0,
             od_channel='Eyespy_sct_V',
             R=0.003,
-            Q_growth_rate=1e-9,
+            Q_growth_rate=5e-13,
             pump_duration=90.0,
         ), 10, True)
 

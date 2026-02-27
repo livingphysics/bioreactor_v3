@@ -1002,7 +1002,7 @@ def turbidostat_ekf_mode(
     flow_rate_ml_s: float = 2.0,
     od_channel: str = 'OD_135_V',
     R: float = 0.001,
-    Q_growth_rate: float = 5e-7,
+    Q_growth_rate: float = 5e-13,
     initial_growth_rate: float = 1.0,
     initial_P_od: Optional[float] = None,
     initial_P_r: float = 0.0005**2,
@@ -1039,7 +1039,7 @@ def turbidostat_ekf_mode(
         flow_rate_ml_s: Flow rate in ml/sec for dilution events (default: 2.0)
         od_channel: CSV column name for the OD reading (default: 'OD_135_V')
         R: Measurement noise variance (default: 0.001)
-        Q_growth_rate: Process noise variance for growth rate state (default: 5e-7)
+        Q_growth_rate: Process noise variance for growth rate state (default: 5e-13)
         initial_growth_rate: Initial growth rate estimate (default: 1.0, no growth)
         initial_P_od: Initial OD covariance. If None, defaults to R.
         initial_P_r: Initial growth rate covariance (default: 0.0005^2)
