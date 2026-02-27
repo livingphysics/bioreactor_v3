@@ -1136,6 +1136,7 @@ def turbidostat_ekf_mode(
         P_pred[0, 0] = pump_distrust_P_od
         P_pred[0, 1] = 0.0
         P_pred[1, 0] = 0.0
+        x_pred[0] = z_k          # reset OD estimate to raw measurement
         if not currently_pumping:
             bioreactor._ekf_pump_distrust_counter -= 1
 
@@ -1155,6 +1156,13 @@ def turbidostat_ekf_mode(
     # Updated covariance: P = (I - K @ H) @ P_pred
     KH = np.outer(K, np.array([1.0, 0.0]))
     P_updated = (np.eye(2) - KH) @ P_pred
+
+    # Secondary reset: if innovation exceeds 5σ, distrust the estimate
+    innovation_threshold = 5.0 * np.sqrt(R)
+    if abs(z_k - x_pred[0]) > innovation_threshold:
+        P_updated[0, 1] = 0.0
+        P_updated[1, 0] = 0.0
+        P_updated[0, 0] = (x_updated[0] - z_k) ** 2
 
     # Store updated state
     bioreactor._ekf_state = x_updated
