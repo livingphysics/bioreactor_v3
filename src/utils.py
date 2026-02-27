@@ -1067,10 +1067,15 @@ def turbidostat_ekf_mode(
 
     P_pred = F @ P @ F.T + Q
 
-    # --- Pump distrust: inflate OD uncertainty during and after dilution ---
+    # --- Pump distrust: reset OD covariance during and after dilution ---
+    # Per Hoffmann et al. 2017: reset P[0,0] and zero off-diagonal terms so that
+    # K[0] ≈ 1 (OD re-converges quickly) but K[1] ≈ 0 (r is protected from
+    # dilution artifacts).
     currently_pumping = getattr(bioreactor, 'pumping_active', False)
     if currently_pumping or bioreactor._ekf_pump_distrust_counter > 0:
-        P_pred[0, 0] = max(P_pred[0, 0], pump_distrust_P_od)
+        P_pred[0, 0] = pump_distrust_P_od
+        P_pred[0, 1] = 0.0
+        P_pred[1, 0] = 0.0
         if not currently_pumping:
             bioreactor._ekf_pump_distrust_counter -= 1
 
