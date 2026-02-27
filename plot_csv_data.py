@@ -44,6 +44,7 @@ import matplotlib
 matplotlib.use('TkAgg')  # Use TkAgg backend explicitly
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
+from matplotlib.widgets import RadioButtons
 import numpy as np
 
 # Try to import paramiko for SSH, fall back to subprocess if not available
@@ -414,6 +415,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     fig = None
     axes = None
     twin_axes = {}  # Store twin axes by (source_idx, group_idx) to reuse them
+    ekf_mode = [getattr(plot_config, 'EKF_PLOT_MODE', 'doubling_time')]  # mutable for closure
+    ekf_radio = [None]  # mutable for closure
     cache_dir = getattr(plot_config, 'CACHE_DIR', '/tmp/plot_csv_cache') if use_remote else None
     update_queue = queue.Queue()  # Queue for thread-safe updates
     update_flag = threading.Event()  # Flag to signal updates from background thread
@@ -426,14 +429,22 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             'Gases': [],
             'Time': []
         }
-        
+
+        exclude_patterns = [p.lower() for p in getattr(plot_config, 'EXCLUDE_COLUMNS', [])]
+
         for header in headers:
             # Skip 'source' column (used for identifying remote servers)
             if header.lower() == 'source':
                 continue
+            # Skip columns matching exclude patterns
+            if any(p in header.lower() for p in exclude_patterns):
+                continue
             header_lower = header.lower()
             if header_lower == 'time' or header_lower == 'elapsed_time':
                 groups['Time'].append(header)
+            elif header_lower.startswith('ekf_'):
+                # EKF estimate columns (ekf_od_est, ekf_growth_rate, ekf_doubling_time_s)
+                groups.setdefault('EKF', []).append(header)
             elif 'od' in header_lower or 'eyespy' in header_lower:
                 # Group both OD and eyespy voltage columns together
                 # Only include voltage columns (not raw ADC values)
@@ -507,9 +518,96 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 print(f"Error reading CSV file: {e}")
                 return None
     
+    def _draw_ekf_axis(ax, mode, data, source_indices, source_times, columns):
+        """Draw the EKF subplot content for the given mode."""
+        if mode == 'doubling_time':
+            dt_col = 'ekf_doubling_time_s'
+            dt_std_col = 'ekf_doubling_time_std_s'
+            if dt_col not in data:
+                return
+            ax.set_ylabel('Doubling time (hours)')
+            ax.ticklabel_format(axis='y', useOffset=False, style='plain')
+            ax.set_ylim(0, 10)
+
+            source_values = [data[dt_col][i] for i in source_indices]
+            valid_indices = [i for i, v in enumerate(source_values)
+                             if not np.isnan(v) and np.isfinite(v) and v > 0]
+            if valid_indices:
+                valid_times = [source_times[i] for i in valid_indices]
+                valid_values = [source_values[i] / 3600.0 for i in valid_indices]
+                ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Doubling time')
+
+                if dt_std_col in data:
+                    std_values = [data[dt_std_col][i] for i in source_indices]
+                    valid_std = [std_values[i] / 3600.0 for i in valid_indices]
+                    upper = [v + s for v, s in zip(valid_values, valid_std)]
+                    lower = [max(0, v - s) for v, s in zip(valid_values, valid_std)]
+                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
+                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+
+            ax.legend(fontsize=9)
+
+        elif mode == 'doublings_per_hour':
+            dt_col = 'ekf_doubling_time_s'
+            dt_std_col = 'ekf_doubling_time_std_s'
+            if dt_col not in data:
+                return
+            ax.set_ylabel('Doublings per hour')
+            ax.ticklabel_format(axis='y', useOffset=False, style='plain')
+            dph_ylim = getattr(plot_config, 'EKF_DOUBLINGS_PER_HOUR_YLIM', (0, 4))
+            ax.set_ylim(*dph_ylim)
+
+            source_values = [data[dt_col][i] for i in source_indices]
+            valid_indices = [i for i, v in enumerate(source_values)
+                             if not np.isnan(v) and np.isfinite(v) and v > 0]
+            if valid_indices:
+                valid_times = [source_times[i] for i in valid_indices]
+                valid_values = [3600.0 / source_values[i] for i in valid_indices]
+                ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Doublings/hr')
+
+                if dt_std_col in data:
+                    std_values = [data[dt_std_col][i] for i in source_indices]
+                    dt_vals = [source_values[i] for i in valid_indices]
+                    valid_std = [std_values[i] for i in valid_indices]
+                    dph_std = [3600.0 * s / (t ** 2) for t, s in zip(dt_vals, valid_std)]
+                    upper = [v + s for v, s in zip(valid_values, dph_std)]
+                    lower = [max(0, v - s) for v, s in zip(valid_values, dph_std)]
+                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
+                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+
+            ax.legend(fontsize=9)
+
+        else:
+            # growth_rate
+            growth_cols = [c for c in columns if c.lower() == 'ekf_growth_rate']
+            growth_std_col = 'ekf_growth_rate_std'
+            ax.set_ylabel('Growth rate (r)')
+            ax.ticklabel_format(axis='y', useOffset=False, style='plain')
+
+            for col_idx, col in enumerate(growth_cols):
+                if col not in data:
+                    continue
+                source_values = [data[col][i] for i in source_indices]
+                valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v) and np.isfinite(v)]
+                if not valid_indices:
+                    continue
+                valid_times = [source_times[i] for i in valid_indices]
+                valid_values = [source_values[i] for i in valid_indices]
+                ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Growth rate (r)')
+
+                if growth_std_col in data:
+                    std_values = [data[growth_std_col][i] for i in source_indices]
+                    valid_std = [std_values[i] for i in valid_indices]
+                    upper = [v + s for v, s in zip(valid_values, valid_std)]
+                    lower = [v - s for v, s in zip(valid_values, valid_std)]
+                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
+                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+
+            ax.legend(fontsize=9)
+
     def update_plot(data=None, headers=None):
         """Update the plot with latest data. Must be called from main thread."""
-        nonlocal fig, axes, twin_axes
+        nonlocal fig, axes, twin_axes, ekf_radio
         
         # If data/headers not provided, read them (for initial call)
         if data is None or headers is None:
@@ -597,6 +695,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 plt.close(fig)
                 fig = None
                 axes = None
+                ekf_radio[0] = None
         
         # Create or update figure
         # Layout: Each bioreactor (source) gets a row, each row has subplots for each data type
@@ -745,9 +844,27 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         ax.plot(valid_times, valid_values, style, linewidth=2,
                                label=col, markersize=4 if marker else None)
 
-                    # Show legend if we have multiple OD columns
-                    if len(columns) > 1:
-                        ax.legend(fontsize=9)
+                    # Overlay EKF OD estimate with ±1σ uncertainty if available
+                    ekf_od_col = 'ekf_od_est'
+                    ekf_od_std_col = 'ekf_od_std'
+                    if ekf_od_col in data:
+                        source_values = [data[ekf_od_col][i] for i in source_indices]
+                        valid_indices = [i for i, v in enumerate(source_values) if not np.isnan(v) and np.isfinite(v)]
+                        if valid_indices:
+                            valid_times = [source_times[i] for i in valid_indices]
+                            valid_values = [source_values[i] for i in valid_indices]
+                            ax.plot(valid_times, valid_values, 'r-', linewidth=2, label='EKF OD estimate')
+
+                            # Plot ±1σ bounds
+                            if ekf_od_std_col in data:
+                                std_values = [data[ekf_od_std_col][i] for i in source_indices]
+                                valid_std = [std_values[i] for i in valid_indices]
+                                upper = [v + s for v, s in zip(valid_values, valid_std)]
+                                lower = [v - s for v, s in zip(valid_values, valid_std)]
+                                ax.plot(valid_times, upper, 'r--', linewidth=1, alpha=0.5, label='EKF ±1σ')
+                                ax.plot(valid_times, lower, 'r--', linewidth=1, alpha=0.5)
+
+                    ax.legend(fontsize=9)
 
                 elif group_name == 'Temperature':
                     ax.set_ylabel('Temperature (°C)')
@@ -923,18 +1040,58 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                         # Ensure formatter is applied (reapply after plotting in case it was reset)
                         o2_axis.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
                 
-                # Show legend if we have multiple columns (combine CO2 and O2 legends)
-                all_columns = co2_columns + o2_columns
-                if len(all_columns) > 1:
-                    # Combine legends from both axes if dual-axis, otherwise use single axis
-                    if ax2 is not None:
-                        lines1, labels1 = ax.get_legend_handles_labels()
-                        lines2, labels2 = ax2.get_legend_handles_labels()
-                        ax.legend(lines1 + lines2, labels1 + labels2, fontsize=9, loc='best')
-                    else:
-                        ax.legend(fontsize=9)
-        
-        plt.tight_layout()
+                    # Show legend if we have multiple columns (combine CO2 and O2 legends)
+                    all_columns = co2_columns + o2_columns
+                    if len(all_columns) > 1:
+                        # Combine legends from both axes if dual-axis, otherwise use single axis
+                        if ax2 is not None:
+                            lines1, labels1 = ax.get_legend_handles_labels()
+                            lines2, labels2 = ax2.get_legend_handles_labels()
+                            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=9, loc='best')
+                        else:
+                            ax.legend(fontsize=9)
+
+                if group_name == 'EKF':
+                    _draw_ekf_axis(ax, ekf_mode[0], data, source_indices, source_times, columns)
+
+                    # Create radio button widget on first pass
+                    if ekf_radio[0] is None:
+                        # Position radio buttons above the EKF subplot
+                        ax_pos = ax.get_position()
+                        radio_ax = fig.add_axes([ax_pos.x0, ax_pos.y1 + 0.005, ax_pos.width, 0.04])
+                        radio_ax.set_frame_on(False)
+                        mode_labels = ['Doublings/hr', 'Doubling time', 'Growth rate (r)']
+                        mode_values = ['doublings_per_hour', 'doubling_time', 'growth_rate']
+                        active_idx = mode_values.index(ekf_mode[0]) if ekf_mode[0] in mode_values else 0
+                        ekf_radio[0] = RadioButtons(radio_ax, mode_labels, active=active_idx)
+                        for label in ekf_radio[0].labels:
+                            label.set_fontsize(8)
+
+                        def _on_ekf_mode(label):
+                            idx = mode_labels.index(label)
+                            ekf_mode[0] = mode_values[idx]
+                            ax.clear()
+                            ax.set_title('EKF')
+                            ax.set_xlabel(xlabel)
+                            ax.grid(True, alpha=0.3)
+                            _draw_ekf_axis(ax, ekf_mode[0], data, source_indices, source_times, columns)
+                            fig.canvas.draw_idle()
+
+                        ekf_radio[0].on_clicked(_on_ekf_mode)
+
+        plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave room for suptitle and radio
+
+        # Reposition radio buttons after tight_layout (it moves axes)
+        if ekf_radio[0] is not None:
+            # Find the EKF axis to position radio above it
+            for si in range(len(sources)):
+                for gi, gn in enumerate(group_names):
+                    if gn == 'EKF':
+                        ekf_ax = axes[si][gi]
+                        ax_pos = ekf_ax.get_position()
+                        ekf_radio[0].ax.set_position([ax_pos.x0, ax_pos.y1 + 0.005, ax_pos.width, 0.035])
+                        break
+
         plt.draw()
         plt.pause(0.1)  # Increased pause time to ensure display updates
     

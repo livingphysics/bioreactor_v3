@@ -4,4 +4,4 @@ config.py
 bioreactor.log
 /__pycache__
 tests/
-src/__pycache__/
+src/__pycache__

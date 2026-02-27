@@ -44,3 +44,13 @@ SSH_KEY_PATH = None  # Path to SSH private key (None = use default ~/.ssh/id_rsa
 
 # Local cache directory for downloaded files
 CACHE_DIR = "/tmp/plot_csv_cache"  # Directory to cache remote files locally
+
+# EKF subplot: 'doubling_time' (default), 'doublings_per_hour', or 'growth_rate'
+EKF_PLOT_MODE = 'doubling_time'
+
+# Y-axis range for doublings_per_hour mode (min, max)
+EKF_DOUBLINGS_PER_HOUR_YLIM = (0, 4)
+
+# Columns to exclude from plotting
+# Use substrings that match column names (case-insensitive), e.g. 'ref' excludes 'OD_ref_V'
+EXCLUDE_COLUMNS = ['ref']
