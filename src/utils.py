@@ -6,6 +6,7 @@ These functions are designed to be used with bioreactor.run() for scheduled task
 
 import time
 import logging
+import threading
 from typing import Union, Optional
 from datetime import datetime
 import numpy as np
@@ -860,29 +861,36 @@ def independent_flow(
         bioreactor.logger.warning("Both durations must be positive. Ignoring.")
         return
 
-    try:
-        bioreactor.logger.info(
-            f"Independent flow: {pump_name}={duration:.2f}s then {converse_name}={converse_duration:.2f}s "
-            f"at {ml_per_sec:.4f} ml/sec"
-        )
+    def _run_pumps():
+        try:
+            bioreactor.pumping_active = True
+            bioreactor.logger.info(
+                f"Independent flow: {pump_name}={duration:.2f}s then {converse_name}={converse_duration:.2f}s "
+                f"at {ml_per_sec:.4f} ml/sec"
+            )
 
-        # Run inflow first
-        change_pump(bioreactor, pump_name, ml_per_sec)
-        if duration > 0:
-            time.sleep(duration)
-        change_pump(bioreactor, pump_name, 0.0)
+            # Run inflow first
+            change_pump(bioreactor, pump_name, ml_per_sec)
+            if duration > 0:
+                time.sleep(duration)
+            change_pump(bioreactor, pump_name, 0.0)
 
-        # Then run outflow
-        change_pump(bioreactor, converse_name, ml_per_sec)
-        if converse_duration > 0:
-            time.sleep(converse_duration)
-        change_pump(bioreactor, converse_name, 0.0)
+            # Then run outflow
+            change_pump(bioreactor, converse_name, ml_per_sec)
+            if converse_duration > 0:
+                time.sleep(converse_duration)
+            change_pump(bioreactor, converse_name, 0.0)
 
-        bioreactor.logger.info(
-            f"Independent flow: {pump_name} and {converse_name} complete"
-        )
-    except Exception as e:
-        bioreactor.logger.error(f"Failed to set independent flow: {e}")
+            bioreactor.logger.info(
+                f"Independent flow: {pump_name} and {converse_name} complete"
+            )
+        except Exception as e:
+            bioreactor.logger.error(f"Failed to set independent flow: {e}")
+        finally:
+            bioreactor.pumping_active = False
+
+    pump_thread = threading.Thread(target=_run_pumps, daemon=True)
+    pump_thread.start()
 
 
 def _read_last_csv_row(csv_path: str) -> Optional[dict]:
@@ -988,19 +996,6 @@ def turbidostat_ekf_mode(
         max_duty: Maximum peltier duty cycle (default: 70.0)
         elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
     """
-    # --- Check job interval vs pump duration ---
-    # Total pump time is inflow + outflow (sequential): pump_duration + pump_duration * 1.1
-    total_pump_time = pump_duration + pump_duration * 1.1
-    if not getattr(bioreactor, '_ekf_interval_checked', False):
-        if elapsed is not None and hasattr(bioreactor, '_ekf_last_time'):
-            job_interval = elapsed - bioreactor._ekf_last_time
-            if job_interval > 0 and job_interval < 2 * total_pump_time:
-                bioreactor.logger.warning(
-                    f"Turbidostat: job interval ({job_interval:.1f}s) is less than 2x total pump time "
-                    f"({2 * total_pump_time:.1f}s). Increase job interval to avoid overlap."
-                )
-            bioreactor._ekf_interval_checked = True
-
     # --- Read latest OD from CSV ---
     if not hasattr(bioreactor, 'out_file_path'):
         bioreactor.logger.warning("Turbidostat: no out_file_path on bioreactor")
@@ -1072,10 +1067,12 @@ def turbidostat_ekf_mode(
 
     P_pred = F @ P @ F.T + Q
 
-    # --- Pump distrust: inflate OD uncertainty after dilution ---
-    if bioreactor._ekf_pump_distrust_counter > 0:
+    # --- Pump distrust: inflate OD uncertainty during and after dilution ---
+    currently_pumping = getattr(bioreactor, 'pumping_active', False)
+    if currently_pumping or bioreactor._ekf_pump_distrust_counter > 0:
         P_pred[0, 0] = max(P_pred[0, 0], pump_distrust_P_od)
-        bioreactor._ekf_pump_distrust_counter -= 1
+        if not currently_pumping:
+            bioreactor._ekf_pump_distrust_counter -= 1
 
     # --- EKF Update (direct observation: H = [1, 0]) ---
     # Innovation
@@ -1127,31 +1124,37 @@ def turbidostat_ekf_mode(
     # --- Pump decision ---
     pumped = False
     if od_est > od_setpoint:
-        converse_duration = pump_duration * 1.1
-        bioreactor.logger.info(
-            f"Turbidostat: OD_est={od_est:.4f} > setpoint={od_setpoint:.4f}, "
-            f"pumping {pump_name}={pump_duration:.1f}s, outflow={converse_duration:.1f}s"
-        )
-        independent_flow(
-            bioreactor, pump_name, flow_rate_ml_s,
-            duration=pump_duration, converse_duration=converse_duration,
-        )
-        pumped = True
-        bioreactor._ekf_pump_distrust_counter = pump_distrust_cycles
+        if currently_pumping:
+            bioreactor.logger.debug(
+                f"Turbidostat: OD_est={od_est:.4f} > setpoint={od_setpoint:.4f}, "
+                f"but pumps already running — skipping"
+            )
+        else:
+            converse_duration = pump_duration * 1.1
+            bioreactor.logger.info(
+                f"Turbidostat: OD_est={od_est:.4f} > setpoint={od_setpoint:.4f}, "
+                f"pumping {pump_name}={pump_duration:.1f}s, outflow={converse_duration:.1f}s"
+            )
+            independent_flow(
+                bioreactor, pump_name, flow_rate_ml_s,
+                duration=pump_duration, converse_duration=converse_duration,
+            )
+            pumped = True
+            bioreactor._ekf_pump_distrust_counter = pump_distrust_cycles
 
-        # Track pump run times
-        if hasattr(bioreactor, 'pump_run_times'):
-            if pump_name in bioreactor.pump_run_times:
-                bioreactor.pump_run_times[pump_name] += pump_duration
-            # Converse pump runs for 1.1x duration
-            if pump_name == 'inflow':
-                converse = 'outflow'
-            elif pump_name == 'outflow':
-                converse = 'inflow'
-            else:
-                converse = None
-            if converse and converse in bioreactor.pump_run_times:
-                bioreactor.pump_run_times[converse] += converse_duration
+            # Track pump run times
+            if hasattr(bioreactor, 'pump_run_times'):
+                if pump_name in bioreactor.pump_run_times:
+                    bioreactor.pump_run_times[pump_name] += pump_duration
+                # Converse pump runs for 1.1x duration
+                if pump_name == 'inflow':
+                    converse = 'outflow'
+                elif pump_name == 'outflow':
+                    converse = 'inflow'
+                else:
+                    converse = None
+                if converse and converse in bioreactor.pump_run_times:
+                    bioreactor.pump_run_times[converse] += converse_duration
 
     # --- Optional temperature PID ---
     if temp_setpoint is not None:
@@ -1169,7 +1172,12 @@ def turbidostat_ekf_mode(
 
     # --- Log ---
     dt_str = f"{doubling_time:.1f}s" if doubling_time != float('inf') else "inf"
-    pump_str = " [PUMPED]" if pumped else ""
+    if pumped:
+        pump_str = " [PUMPED]"
+    elif currently_pumping:
+        pump_str = " [PUMPING]"
+    else:
+        pump_str = ""
     bioreactor.logger.info(
         f"Turbidostat: meas={z_k:.4f} est={od_est:.4f} r={r_est:.6f} "
         f"Td={dt_str} sp={od_setpoint:.4f}{pump_str}"

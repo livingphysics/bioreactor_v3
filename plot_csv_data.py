@@ -992,6 +992,38 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
 
                         ax.legend(fontsize=9)
 
+                    elif ekf_plot_mode == 'doublings_per_hour':
+                        dt_col = 'ekf_doubling_time_s'
+                        dt_std_col = 'ekf_doubling_time_std_s'
+                        if dt_col not in data:
+                            continue
+                        ax.set_ylabel('Doublings per hour')
+                        ax.ticklabel_format(axis='y', useOffset=False, style='plain')
+                        ax.set_ylim(0, 4)
+
+                        source_values = [data[dt_col][i] for i in source_indices]
+                        # doublings/hr = 3600 / doubling_time_s, filter out inf/NaN/zero
+                        valid_indices = [i for i, v in enumerate(source_values)
+                                         if not np.isnan(v) and np.isfinite(v) and v > 0]
+                        if valid_indices:
+                            valid_times = [source_times[i] for i in valid_indices]
+                            valid_values = [3600.0 / source_values[i] for i in valid_indices]
+                            ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Doublings/hr')
+
+                            # Plot ±1σ bounds via error propagation: σ(1/T) = σ_T / T²
+                            if dt_std_col in data:
+                                std_values = [data[dt_std_col][i] for i in source_indices]
+                                dt_vals = [source_values[i] for i in valid_indices]
+                                valid_std = [std_values[i] for i in valid_indices]
+                                # doublings/hr = 3600/T, so σ = 3600 * σ_T / T²
+                                dph_std = [3600.0 * s / (t ** 2) for t, s in zip(dt_vals, valid_std)]
+                                upper = [v + s for v, s in zip(valid_values, dph_std)]
+                                lower = [max(0, v - s) for v, s in zip(valid_values, dph_std)]
+                                ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
+                                ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+
+                        ax.legend(fontsize=9)
+
                     else:
                         # Plot growth rate (r)
                         growth_cols = [c for c in columns if c.lower() == 'ekf_growth_rate']
