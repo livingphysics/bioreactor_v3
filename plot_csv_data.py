@@ -965,10 +965,12 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
 
                     if ekf_plot_mode == 'doubling_time':
                         dt_col = 'ekf_doubling_time_s'
+                        dt_std_col = 'ekf_doubling_time_std_s'
                         if dt_col not in data:
                             continue
                         ax.set_ylabel('Doubling time (hours)')
                         ax.ticklabel_format(axis='y', useOffset=False, style='plain')
+                        ax.set_ylim(0, 10)
 
                         source_values = [data[dt_col][i] for i in source_indices]
                         # Convert seconds to hours, filter out inf/NaN
@@ -978,6 +980,16 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                             valid_times = [source_times[i] for i in valid_indices]
                             valid_values = [source_values[i] / 3600.0 for i in valid_indices]
                             ax.plot(valid_times, valid_values, 'b-', linewidth=2, label='Doubling time')
+
+                            # Plot ±1σ bounds
+                            if dt_std_col in data:
+                                std_values = [data[dt_std_col][i] for i in source_indices]
+                                valid_std = [std_values[i] / 3600.0 for i in valid_indices]
+                                upper = [v + s for v, s in zip(valid_values, valid_std)]
+                                lower = [max(0, v - s) for v, s in zip(valid_values, valid_std)]
+                                ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
+                                ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+
                         ax.legend(fontsize=9)
 
                     else:

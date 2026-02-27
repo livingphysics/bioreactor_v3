@@ -1101,21 +1101,27 @@ def turbidostat_ekf_mode(
     od_est = x_updated[0]
     r_est = x_updated[1]
 
-    # --- Compute doubling time ---
-    if r_est > 1.0 and dt_cycle > 0:
-        doubling_time = dt_cycle * np.log(2.0) / np.log(r_est)
-    else:
-        doubling_time = float('inf')
-
-    # Store estimates so measure_and_record_sensors can write them to CSV
+    # --- Compute doubling time and its uncertainty ---
+    # T = dt_cycle * ln(2) / ln(r)
+    # σ_T = |dT/dr| * σ_r = dt_cycle * ln(2) * σ_r / (r * ln(r)^2)
     od_std = np.sqrt(P_updated[0, 0])
     r_std = np.sqrt(P_updated[1, 1])
+    if r_est > 1.0 and dt_cycle > 0:
+        ln_r = np.log(r_est)
+        doubling_time = dt_cycle * np.log(2.0) / ln_r
+        doubling_time_std = dt_cycle * np.log(2.0) * r_std / (r_est * ln_r ** 2)
+    else:
+        doubling_time = float('inf')
+        doubling_time_std = float('inf')
+
+    # Store estimates so measure_and_record_sensors can write them to CSV
     bioreactor.ekf_estimates = {
         'ekf_od_est': od_est,
         'ekf_growth_rate': r_est,
         'ekf_doubling_time_s': doubling_time,
         'ekf_od_std': od_std,
         'ekf_growth_rate_std': r_std,
+        'ekf_doubling_time_std_s': doubling_time_std,
     }
 
     # --- Pump decision ---
