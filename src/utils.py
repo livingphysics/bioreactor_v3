@@ -386,7 +386,8 @@ def temperature_pid_controller(
     dt: Optional[float] = None,
     elapsed: Optional[float] = None,
     sensor_index: int = 0,
-    max_duty: float = 70.0,
+    max_duty_heat: Optional[float] = None,
+    max_duty_cool: Optional[float] = None,
     derivative_alpha: float = 0.7
 ) -> None:
     """
@@ -401,13 +402,14 @@ def temperature_pid_controller(
         bioreactor: Bioreactor instance
         setpoint: Desired temperature (°C)
         current_temp: Measured temperature (°C). If None, reads from temperature sensor.
-        kp: Proportional gain (default: 5.0)
-        ki: Integral gain (default: 0.3)
-        kd: Derivative gain (default: 2.0)
+        kp: Proportional gain (default: 12.0)
+        ki: Integral gain (default: 0.015)
+        kd: Derivative gain (default: 0.0)
         dt: Time elapsed since last call (s). If None, uses elapsed parameter or estimates.
         elapsed: Elapsed time since start (s). Used to estimate dt if dt is None.
         sensor_index: Index of temperature sensor to read (default: 0)
-        max_duty: Maximum duty cycle percentage (default: 70.0, hardware safety limit)
+        max_duty_heat: Max duty for heating (0-100). None = use config.PELTIER_MAX_DUTY_HEAT (default 70)
+        max_duty_cool: Max duty for cooling (0-100). None = use config.PELTIER_MAX_DUTY_COOL (default 70)
         derivative_alpha: Derivative filter coefficient (default: 0.7, 0-1, higher = less filtering)
         
     Note:
@@ -473,14 +475,20 @@ def temperature_pid_controller(
         # Calculate PID output (pure PID formula)
         output = kp * error + ki * bioreactor._temp_integral + kd * derivative
         
-        # Convert output to duty cycle (0-100) and clamp to max_duty (hardware safety limit)
-        duty = max(0, min(max_duty, abs(output)))
-        
         # Determine direction based on PID output:
         # error = setpoint - current_temp
         # If error > 0 (too cold), output > 0, we need to HEAT
         # If error < 0 (too hot), output < 0, we need to COOL
         direction = 'heat' if output > 0 else 'cool'
+        
+        # Resolve max duty from config if not explicitly provided
+        config = getattr(bioreactor, 'cfg', None)
+        limit_heat = max_duty_heat if max_duty_heat is not None else (getattr(config, 'PELTIER_MAX_DUTY_HEAT', 70.0) if config else 70.0)
+        limit_cool = max_duty_cool if max_duty_cool is not None else (getattr(config, 'PELTIER_MAX_DUTY_COOL', 70.0) if config else 70.0)
+        max_duty = limit_heat if direction == 'heat' else limit_cool
+        
+        # Convert output to duty cycle (0-100) and clamp to max_duty (hardware safety limit)
+        duty = max(0, min(max_duty, abs(output)))
         
         # Apply peltier control
         if bioreactor.is_component_initialized('peltier_driver'):
@@ -520,7 +528,8 @@ def temperature_profile(
     ki: float = 0.015,
     kd: float = 0.0,
     sensor_index: int = 0,
-    max_duty: float = 70.0,
+    max_duty_heat: Optional[float] = None,
+    max_duty_cool: Optional[float] = None,
     elapsed: Optional[float] = None,
 ) -> None:
     """
@@ -542,7 +551,8 @@ def temperature_profile(
         ki: Integral gain (default: 0.015)
         kd: Derivative gain (default: 0.0)
         sensor_index: Temperature sensor index (default: 0)
-        max_duty: Maximum peltier duty cycle (default: 70.0)
+        max_duty_heat: Max duty for heating. None = use config.PELTIER_MAX_DUTY_HEAT
+        max_duty_cool: Max duty for cooling. None = use config.PELTIER_MAX_DUTY_COOL
         elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
     """
     if elapsed is None or not profile:
@@ -569,7 +579,8 @@ def temperature_profile(
         kd=kd,
         elapsed=elapsed,
         sensor_index=sensor_index,
-        max_duty=max_duty,
+        max_duty_heat=max_duty_heat,
+        max_duty_cool=max_duty_cool,
     )
 
 
@@ -788,7 +799,8 @@ def chemostat_mode(
     dt: Optional[float] = None,
     elapsed: Optional[float] = None,
     sensor_index: int = 0,
-    max_duty: float = 70.0,
+    max_duty_heat: Optional[float] = None,
+    max_duty_cool: Optional[float] = None,
     flow_freq: float = 1.0,
     temp_freq: float = 1.0,
 ) -> None:
@@ -811,7 +823,8 @@ def chemostat_mode(
         dt: Time step for PID loop (s). If None, uses temp_freq.
         elapsed: Elapsed time since start (s). Used internally.
         sensor_index: Index of temperature sensor to read (default: 0)
-        max_duty: Maximum duty cycle for peltier (default: 70.0)
+        max_duty_heat: Max duty for heating. None = use config.PELTIER_MAX_DUTY_HEAT
+        max_duty_cool: Max duty for cooling. None = use config.PELTIER_MAX_DUTY_COOL
         flow_freq: Frequency (s) for balanced flow updates (default: 1.0)
         temp_freq: Frequency (s) for temperature PID updates (default: 1.0)
     """
@@ -829,7 +842,8 @@ def chemostat_mode(
             dt=dt if dt is not None else temp_freq,
             elapsed=elapsed,
             sensor_index=sensor_index,
-            max_duty=max_duty,
+            max_duty_heat=max_duty_heat,
+            max_duty_cool=max_duty_cool,
         )
 
 
@@ -1015,7 +1029,8 @@ def turbidostat_ekf_mode(
     kd: float = 0.0,
     dt: Optional[float] = None,
     sensor_index: int = 0,
-    max_duty: float = 70.0,
+    max_duty_heat: Optional[float] = None,
+    max_duty_cool: Optional[float] = None,
     elapsed: Optional[float] = None,
 ) -> None:
     """
@@ -1053,7 +1068,8 @@ def turbidostat_ekf_mode(
         kd: Derivative gain for temperature PID (default: 0.0)
         dt: Time step for temperature PID. If None, auto-computed.
         sensor_index: Temperature sensor index (default: 0)
-        max_duty: Maximum peltier duty cycle (default: 70.0)
+        max_duty_heat: Max duty for heating. None = use config.PELTIER_MAX_DUTY_HEAT
+        max_duty_cool: Max duty for cooling. None = use config.PELTIER_MAX_DUTY_COOL
         elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
     """
     # --- Read latest OD from CSV ---
@@ -1240,7 +1256,8 @@ def turbidostat_ekf_mode(
             dt=dt if dt is not None else dt_cycle,
             elapsed=elapsed,
             sensor_index=sensor_index,
-            max_duty=max_duty,
+            max_duty_heat=max_duty_heat,
+            max_duty_cool=max_duty_cool,
         )
 
     # --- Log ---
