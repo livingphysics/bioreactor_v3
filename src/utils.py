@@ -513,6 +513,66 @@ def temperature_pid_controller(
         )
 
 
+def temperature_profile(
+    bioreactor,
+    profile: list,
+    kp: float = 12.0,
+    ki: float = 0.015,
+    kd: float = 0.0,
+    sensor_index: int = 0,
+    max_duty: float = 70.0,
+    elapsed: Optional[float] = None,
+) -> None:
+    """
+    Run a temperature profile that changes setpoint over time.
+
+    The profile is a list of (duration_seconds, setpoint_celsius) tuples
+    executed in order. The last setpoint is held indefinitely after all
+    steps complete.
+
+    Example:
+        # 30°C for 3 hours, then 25°C
+        partial(temperature_profile, profile=[(3*3600, 30.0), (None, 25.0)])
+
+    Args:
+        bioreactor: Bioreactor instance
+        profile: List of (duration, setpoint) tuples. duration is in seconds.
+                 Use None for the last duration to hold indefinitely.
+        kp: Proportional gain (default: 12.0)
+        ki: Integral gain (default: 0.015)
+        kd: Derivative gain (default: 0.0)
+        sensor_index: Temperature sensor index (default: 0)
+        max_duty: Maximum peltier duty cycle (default: 70.0)
+        elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
+    """
+    if elapsed is None or not profile:
+        return
+
+    # Determine which profile step we're in
+    t = 0.0
+    setpoint = profile[-1][1]  # default to last step
+    for duration, sp in profile:
+        if duration is None:
+            setpoint = sp
+            break
+        if elapsed < t + duration:
+            setpoint = sp
+            break
+        t += duration
+        setpoint = sp  # carry forward in case we're past all steps
+
+    temperature_pid_controller(
+        bioreactor,
+        setpoint=setpoint,
+        kp=kp,
+        ki=ki,
+        kd=kd,
+        elapsed=elapsed,
+        sensor_index=sensor_index,
+        max_duty=max_duty,
+    )
+
+
 def ring_light_cycle(
     bioreactor,
     color: tuple = (50, 50, 50),

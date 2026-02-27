@@ -85,17 +85,19 @@ with Bioreactor(config) as reactor:
         # Measure and record sensors every 20 seconds with IR led at 15%
         (partial(measure_and_record_sensors, led_power=15.0), 10, True),  # Read sensors and record to CSV every 5 seconds
         
-        # Temperature PID controller - maintains temperature at 37.0°C
-        # Run PID controller every 5 seconds
-        #(partial(temperature_pid_controller, setpoint=30.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
-        
+        # Temperature profile: 30°C for 3 hours, then 25°C indefinitely
+        (partial(temperature_profile, profile=[
+            (3 * 3600, 30.0),
+            (None, 25.0),
+        ]), 20, True),
+
+        # EKF turbidostat (temp control handled by temperature_profile above)
         (partial(turbidostat_ekf_mode,
             od_setpoint=2.0,
             od_channel='Eyespy_sct_V',
-            R=0.003, 
-            Q_growth_rate=1e-8,
+            R=0.003,
+            Q_growth_rate=1e-9,
             pump_duration=90.0,
-            temp_setpoint=30.0,
         ), 10, True)
 
     ]
