@@ -999,7 +999,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                             continue
                         ax.set_ylabel('Doublings per hour')
                         ax.ticklabel_format(axis='y', useOffset=False, style='plain')
-                        ax.set_ylim(0, 4)
+                        dph_ylim = getattr(plot_config, 'EKF_DOUBLINGS_PER_HOUR_YLIM', (0, 4))
+                        ax.set_ylim(*dph_ylim)
 
                         source_values = [data[dt_col][i] for i in source_indices]
                         # doublings/hr = 3600 / doubling_time_s, filter out inf/NaN/zero
