@@ -87,7 +87,7 @@ with Bioreactor(config) as reactor:
         
         # Temperature PID controller - maintains temperature at 37.0°C
         # Run PID controller every 5 seconds
-        (partial(temperature_pid_controller, setpoint=30.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
+        #(partial(temperature_pid_controller, setpoint=30.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
         
         (partial(turbidostat_ekf_mode,
             od_setpoint=2.0,
