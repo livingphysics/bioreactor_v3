@@ -87,10 +87,8 @@ with Bioreactor(config) as reactor:
         
         # Temperature profile: 30°C for 3 hours, then 25°C indefinitely
         (partial(temperature_profile, profile=[
-            (3 * 3600, 20.0),
-            (3 * 3600, 22.5),
             (3 * 3600, 25.0),
-            (3 * 3600, 27.5.0),
+            (3 * 3600, 27.5),
             (None, 30.0),
         ]), 20, True),
 
