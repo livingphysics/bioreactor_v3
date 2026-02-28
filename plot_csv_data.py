@@ -553,8 +553,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     valid_std = [std_values[i] / 3600.0 for i in valid_indices]
                     upper = [v + s for v, s in zip(valid_values, valid_std)]
                     lower = [max(0, v - s) for v, s in zip(valid_values, valid_std)]
-                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
-                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+                    ax.fill_between(valid_times, lower, upper, color='b', alpha=0.15, label='±1σ')
 
             ax.legend(fontsize=9)
 
@@ -583,8 +582,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     dph_std = [3600.0 * s / (t ** 2) for t, s in zip(dt_vals, valid_std)]
                     upper = [v + s for v, s in zip(valid_values, dph_std)]
                     lower = [max(0, v - s) for v, s in zip(valid_values, dph_std)]
-                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
-                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+                    ax.fill_between(valid_times, lower, upper, color='b', alpha=0.15, label='±1σ')
 
             ax.legend(fontsize=9)
 
@@ -611,8 +609,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     valid_std = [std_values[i] for i in valid_indices]
                     upper = [v + s for v, s in zip(valid_values, valid_std)]
                     lower = [v - s for v, s in zip(valid_values, valid_std)]
-                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
-                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+                    ax.fill_between(valid_times, lower, upper, color='b', alpha=0.15, label='±1σ')
 
             ax.legend(fontsize=9)
 
@@ -873,8 +870,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                                 valid_std = [std_values[i] for i in valid_indices]
                                 upper = [v + s for v, s in zip(valid_values, valid_std)]
                                 lower = [v - s for v, s in zip(valid_values, valid_std)]
-                                ax.plot(valid_times, upper, 'r--', linewidth=1, alpha=0.5, label='EKF ±1σ')
-                                ax.plot(valid_times, lower, 'r--', linewidth=1, alpha=0.5)
+                                ax.fill_between(valid_times, lower, upper, color='r', alpha=0.15, label='EKF ±1σ')
 
                     ax.legend(fontsize=9)
 
