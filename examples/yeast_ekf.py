@@ -87,8 +87,11 @@ with Bioreactor(config) as reactor:
         
         # Temperature profile: 30°C for 3 hours, then 25°C indefinitely
         (partial(temperature_profile, profile=[
-            (3 * 3600, 30.0),
-            (None, 25.0),
+            (3 * 3600, 20.0),
+            (3 * 3600, 22.5),
+            (3 * 3600, 25.0),
+            (3 * 3600, 27.5.0),
+            (None, 30.0),
         ]), 20, True),
 
         # EKF turbidostat (temp control handled by temperature_profile above)
