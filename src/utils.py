@@ -1016,7 +1016,7 @@ def turbidostat_ekf_mode(
     flow_rate_ml_s: float = 2.0,
     od_channel: str = 'OD_135_V',
     R: float = 0.001,
-    Q_growth_rate: float = 1e-11,
+    Q_growth_rate: float = 5e-12,
     initial_growth_rate: float = 1.0,
     initial_P_od: Optional[float] = None,
     initial_P_r: float = 0.0005**2,
