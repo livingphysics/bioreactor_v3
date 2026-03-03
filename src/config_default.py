@@ -48,9 +48,11 @@ class Config:
     SENSOR_LABELS: dict = {}
 
     # Peltier Driver Configuration (Raspberry Pi 5 GPIO via lgpio)
-    PELTIER_PWM_PIN: int = 21 # BCM pin for PWM output
+    PELTIER_PWM_PIN: int = 21  # BCM pin for PWM output
     PELTIER_DIR_PIN: int = 20  # BCM pin for direction control
     PELTIER_PWM_FREQ: int = 1000  # PWM frequency in Hz
+    PELTIER_MAX_DUTY_HEAT: float = 70.0  # Max duty cycle for heating (0-100, hardware safety limit)
+    PELTIER_MAX_DUTY_COOL: float = 10.0  # Max duty cycle for cooling (0-100, hardware safety limit)
 
     # Stirrer Configuration (PWM only)
     STIRRER_PWM_PIN: int = 12  # BCM pin for stirrer PWM output

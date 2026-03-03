@@ -44,7 +44,7 @@ import matplotlib
 matplotlib.use('TkAgg')  # Use TkAgg backend explicitly
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
-from matplotlib.widgets import RadioButtons
+from matplotlib.widgets import Button
 import numpy as np
 
 # Try to import paramiko for SSH, fall back to subprocess if not available
@@ -90,6 +90,12 @@ def get_most_recent_local_csv(directory_path):
         return None
 
 
+def _resolve_remote_path(server_config):
+    """Resolve {user} placeholder in remote_path using the server's 'user' value."""
+    path = server_config.get('remote_path', '')
+    return path.format(user=server_config.get('user', ''))
+
+
 def get_most_recent_remote_file(server_config):
     """
     Get the most recent CSV filename in the remote path (by mtime).
@@ -100,7 +106,7 @@ def get_most_recent_remote_file(server_config):
     Returns:
         Filename (basename) of the most recent .csv file, or None if none found or error.
     """
-    remote_path = server_config['remote_path'].rstrip('/').replace('\\', '/')
+    remote_path = _resolve_remote_path(server_config).rstrip('/').replace('\\', '/')
     try:
         if HAS_PARAMIKO:
             ssh = paramiko.SSHClient()
@@ -159,7 +165,7 @@ def fetch_remote_file(server_config, cache_dir, filename_override=None):
         Path to local cached file, or None if fetch failed
     """
     filename = filename_override if filename_override is not None else server_config['filename']
-    remote_file = os.path.join(server_config['remote_path'], filename).replace('\\', '/')
+    remote_file = os.path.join(_resolve_remote_path(server_config), filename).replace('\\', '/')
     local_file = os.path.join(cache_dir, f"{server_config['label']}_{filename}")
     
     try:
@@ -415,8 +421,13 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     fig = None
     axes = None
     twin_axes = {}  # Store twin axes by (source_idx, group_idx) to reuse them
-    ekf_mode = [getattr(plot_config, 'EKF_PLOT_MODE', 'doubling_time')]  # mutable for closure
-    ekf_radio = [None]  # mutable for closure
+    ekf_mode_labels = ['Doublings/hr', 'Doubling time', 'Growth rate (r)']
+    ekf_mode_values = ['doublings_per_hour', 'doubling_time', 'growth_rate']
+    _init_mode = getattr(plot_config, 'EKF_PLOT_MODE', 'doubling_time')
+    ekf_mode_idx = [ekf_mode_values.index(_init_mode) if _init_mode in ekf_mode_values else 0]
+    ekf_btn = [None]  # mutable for closure
+    ekf_ax_ref = [None]  # store the EKF axis reference
+    ekf_data_ref = [None, None, None, None]  # [data, source_indices, source_times, columns]
     cache_dir = getattr(plot_config, 'CACHE_DIR', '/tmp/plot_csv_cache') if use_remote else None
     update_queue = queue.Queue()  # Queue for thread-safe updates
     update_flag = threading.Event()  # Flag to signal updates from background thread
@@ -542,8 +553,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     valid_std = [std_values[i] / 3600.0 for i in valid_indices]
                     upper = [v + s for v, s in zip(valid_values, valid_std)]
                     lower = [max(0, v - s) for v, s in zip(valid_values, valid_std)]
-                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
-                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+                    ax.fill_between(valid_times, lower, upper, color='b', alpha=0.15, label='±1σ')
 
             ax.legend(fontsize=9)
 
@@ -572,8 +582,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     dph_std = [3600.0 * s / (t ** 2) for t, s in zip(dt_vals, valid_std)]
                     upper = [v + s for v, s in zip(valid_values, dph_std)]
                     lower = [max(0, v - s) for v, s in zip(valid_values, dph_std)]
-                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
-                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+                    ax.fill_between(valid_times, lower, upper, color='b', alpha=0.15, label='±1σ')
 
             ax.legend(fontsize=9)
 
@@ -600,14 +609,13 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                     valid_std = [std_values[i] for i in valid_indices]
                     upper = [v + s for v, s in zip(valid_values, valid_std)]
                     lower = [v - s for v, s in zip(valid_values, valid_std)]
-                    ax.plot(valid_times, upper, 'b--', linewidth=1, alpha=0.5, label='±1σ')
-                    ax.plot(valid_times, lower, 'b--', linewidth=1, alpha=0.5)
+                    ax.fill_between(valid_times, lower, upper, color='b', alpha=0.15, label='±1σ')
 
             ax.legend(fontsize=9)
 
     def update_plot(data=None, headers=None):
         """Update the plot with latest data. Must be called from main thread."""
-        nonlocal fig, axes, twin_axes, ekf_radio
+        nonlocal fig, axes, twin_axes
         
         # If data/headers not provided, read them (for initial call)
         if data is None or headers is None:
@@ -695,7 +703,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 plt.close(fig)
                 fig = None
                 axes = None
-                ekf_radio[0] = None
+                ekf_btn[0] = None
+                ekf_ax_ref[0] = None
         
         # Create or update figure
         # Layout: Each bioreactor (source) gets a row, each row has subplots for each data type
@@ -861,8 +870,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                                 valid_std = [std_values[i] for i in valid_indices]
                                 upper = [v + s for v, s in zip(valid_values, valid_std)]
                                 lower = [v - s for v, s in zip(valid_values, valid_std)]
-                                ax.plot(valid_times, upper, 'r--', linewidth=1, alpha=0.5, label='EKF ±1σ')
-                                ax.plot(valid_times, lower, 'r--', linewidth=1, alpha=0.5)
+                                ax.fill_between(valid_times, lower, upper, color='r', alpha=0.15, label='EKF ±1σ')
 
                     ax.legend(fontsize=9)
 
@@ -1052,45 +1060,40 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                             ax.legend(fontsize=9)
 
                 if group_name == 'EKF':
-                    _draw_ekf_axis(ax, ekf_mode[0], data, source_indices, source_times, columns)
+                    # Store references for the button callback
+                    ekf_ax_ref[0] = ax
+                    ekf_data_ref[:] = [data, source_indices, source_times, columns]
+                    current_mode = ekf_mode_values[ekf_mode_idx[0]]
+                    _draw_ekf_axis(ax, current_mode, data, source_indices, source_times, columns)
 
-                    # Create radio button widget on first pass
-                    if ekf_radio[0] is None:
-                        # Position radio buttons above the EKF subplot
+                    # Create cycle button on first pass
+                    if ekf_btn[0] is None:
                         ax_pos = ax.get_position()
-                        radio_ax = fig.add_axes([ax_pos.x0, ax_pos.y1 + 0.005, ax_pos.width, 0.04])
-                        radio_ax.set_frame_on(False)
-                        mode_labels = ['Doublings/hr', 'Doubling time', 'Growth rate (r)']
-                        mode_values = ['doublings_per_hour', 'doubling_time', 'growth_rate']
-                        active_idx = mode_values.index(ekf_mode[0]) if ekf_mode[0] in mode_values else 0
-                        ekf_radio[0] = RadioButtons(radio_ax, mode_labels, active=active_idx)
-                        for label in ekf_radio[0].labels:
-                            label.set_fontsize(8)
+                        btn_ax = fig.add_axes([ax_pos.x0, ax_pos.y1 + 0.005, ax_pos.width * 0.4, 0.03])
+                        ekf_btn[0] = Button(btn_ax, ekf_mode_labels[ekf_mode_idx[0]], hovercolor='0.85')
+                        ekf_btn[0].label.set_fontsize(9)
 
-                        def _on_ekf_mode(label):
-                            idx = mode_labels.index(label)
-                            ekf_mode[0] = mode_values[idx]
-                            ax.clear()
-                            ax.set_title('EKF')
-                            ax.set_xlabel(xlabel)
-                            ax.grid(True, alpha=0.3)
-                            _draw_ekf_axis(ax, ekf_mode[0], data, source_indices, source_times, columns)
+                        def _cycle_ekf_mode(event):
+                            ekf_mode_idx[0] = (ekf_mode_idx[0] + 1) % len(ekf_mode_values)
+                            new_mode = ekf_mode_values[ekf_mode_idx[0]]
+                            ekf_btn[0].label.set_text(ekf_mode_labels[ekf_mode_idx[0]])
+                            target_ax = ekf_ax_ref[0]
+                            d, si, st, cols = ekf_data_ref
+                            target_ax.clear()
+                            target_ax.set_title('EKF')
+                            target_ax.set_xlabel(xlabel)
+                            target_ax.grid(True, alpha=0.3)
+                            _draw_ekf_axis(target_ax, new_mode, d, si, st, cols)
                             fig.canvas.draw_idle()
 
-                        ekf_radio[0].on_clicked(_on_ekf_mode)
+                        ekf_btn[0].on_clicked(_cycle_ekf_mode)
 
-        plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave room for suptitle and radio
+        plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave room for suptitle
 
-        # Reposition radio buttons after tight_layout (it moves axes)
-        if ekf_radio[0] is not None:
-            # Find the EKF axis to position radio above it
-            for si in range(len(sources)):
-                for gi, gn in enumerate(group_names):
-                    if gn == 'EKF':
-                        ekf_ax = axes[si][gi]
-                        ax_pos = ekf_ax.get_position()
-                        ekf_radio[0].ax.set_position([ax_pos.x0, ax_pos.y1 + 0.005, ax_pos.width, 0.035])
-                        break
+        # Reposition button after tight_layout (it moves axes)
+        if ekf_btn[0] is not None and ekf_ax_ref[0] is not None:
+            ax_pos = ekf_ax_ref[0].get_position()
+            ekf_btn[0].ax.set_position([ax_pos.x0, ax_pos.y1 + 0.005, ax_pos.width * 0.4, 0.03])
 
         plt.draw()
         plt.pause(0.1)  # Increased pause time to ensure display updates
