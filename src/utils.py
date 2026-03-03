@@ -14,6 +14,127 @@ import numpy as np
 logger = logging.getLogger("Bioreactor.Utils")
 
 
+def _standalone_ekf_update(bioreactor, sensor_data, elapsed):
+    """Run a standalone EKF update to estimate OD and growth rate.
+
+    This is called by measure_and_record_sensors when no turbidostat EKF job
+    is running (i.e. bioreactor.ekf_estimates does not already exist).  It
+    uses the same maths as turbidostat_ekf_mode but without any pump logic.
+    """
+    # --- Pick the OD channel from sensor_data ---
+    eyespy_init = bioreactor.is_component_initialized('eyespy_adc')
+    od_init = bioreactor.is_component_initialized('optical_density')
+
+    if eyespy_init:
+        z_k = sensor_data.get('eyespy_sct_voltage', float('nan'))
+    elif od_init:
+        z_k = sensor_data.get('od_135', float('nan'))
+    else:
+        return  # no OD sensor available
+
+    if np.isnan(z_k):
+        return  # no valid reading this cycle
+
+    # --- EKF defaults ---
+    R = 0.003
+    Q_growth_rate = 5e-12
+    initial_P_r = 0.0005 ** 2
+    pump_distrust_P_od = 10.0 * R
+
+    # --- Initialize on first call ---
+    if not getattr(bioreactor, '_ekf_initialized', False):
+        bioreactor._ekf_state = np.array([z_k, 1.0])
+        bioreactor._ekf_P = np.array([
+            [R, 0.0],
+            [0.0, initial_P_r],
+        ])
+        bioreactor._ekf_pump_distrust_counter = 0
+        bioreactor._ekf_last_time = elapsed if elapsed is not None else time.time()
+        bioreactor._ekf_initialized = True
+        bioreactor.logger.info(
+            f"Standalone EKF initialized: OD={z_k:.4f}, r=1.0"
+        )
+        return
+
+    # --- Compute dt_cycle ---
+    current_time = elapsed if elapsed is not None else time.time()
+    dt_cycle = current_time - bioreactor._ekf_last_time
+    if dt_cycle <= 0:
+        dt_cycle = 1.0
+    bioreactor._ekf_last_time = current_time
+
+    # --- EKF Predict ---
+    od_k = bioreactor._ekf_state[0]
+    r_k = bioreactor._ekf_state[1]
+    P = bioreactor._ekf_P
+
+    x_pred = np.array([od_k * r_k, r_k])
+
+    F = np.array([
+        [r_k, od_k],
+        [0.0, 1.0],
+    ])
+
+    Q = np.array([
+        [0.0, 0.0],
+        [0.0, Q_growth_rate],
+    ])
+
+    P_pred = F @ P @ F.T + Q
+
+    # --- Pump distrust (honours counter set by other jobs) ---
+    currently_pumping = getattr(bioreactor, 'pumping_active', False)
+    if currently_pumping or getattr(bioreactor, '_ekf_pump_distrust_counter', 0) > 0:
+        P_pred[0, 0] = pump_distrust_P_od
+        P_pred[0, 1] = 0.0
+        P_pred[1, 0] = 0.0
+        x_pred[0] = z_k
+        if not currently_pumping:
+            bioreactor._ekf_pump_distrust_counter -= 1
+
+    # --- EKF Update (H = [1, 0]) ---
+    y = z_k - x_pred[0]
+    S = P_pred[0, 0] + R
+    K = P_pred[:, 0] / S
+    x_updated = x_pred + K * y
+
+    KH = np.outer(K, np.array([1.0, 0.0]))
+    P_updated = (np.eye(2) - KH) @ P_pred
+
+    # Secondary 5-sigma reset
+    innovation_threshold = 5.0 * np.sqrt(R)
+    if abs(z_k - x_pred[0]) > innovation_threshold:
+        P_updated[0, 1] = 0.0
+        P_updated[1, 0] = 0.0
+        P_updated[0, 0] = (x_updated[0] - z_k) ** 2
+
+    bioreactor._ekf_state = x_updated
+    bioreactor._ekf_P = P_updated
+
+    od_est = x_updated[0]
+    r_est = x_updated[1]
+
+    # --- Doubling time ---
+    od_std = np.sqrt(P_updated[0, 0])
+    r_std = np.sqrt(P_updated[1, 1])
+    if r_est > 1.0 and dt_cycle > 0:
+        ln_r = np.log(r_est)
+        doubling_time = dt_cycle * np.log(2.0) / ln_r
+        doubling_time_std = dt_cycle * np.log(2.0) * r_std / (r_est * ln_r ** 2)
+    else:
+        doubling_time = float('inf')
+        doubling_time_std = float('inf')
+
+    bioreactor.ekf_estimates = {
+        'ekf_od_est': od_est,
+        'ekf_growth_rate': r_est,
+        'ekf_doubling_time_s': doubling_time,
+        'ekf_od_std': od_std,
+        'ekf_growth_rate_std': r_std,
+        'ekf_doubling_time_std_s': doubling_time_std,
+    }
+
+
 def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
     """
     Measure and record sensor data from OD channels and Temperature to CSV file (no plotting).
@@ -300,7 +421,11 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             for pname, total_time in bioreactor.pump_run_times.items():
                 csv_row[f"pump_{pname}_time_s"] = total_time
 
-        # Add EKF estimates if turbidostat is running
+        # Standalone EKF: compute estimates if no EKF job is already running
+        if not hasattr(bioreactor, 'ekf_estimates'):
+            _standalone_ekf_update(bioreactor, sensor_data, elapsed)
+
+        # Add EKF estimates if available (from turbidostat or standalone)
         if hasattr(bioreactor, 'ekf_estimates'):
             for key, value in bioreactor.ekf_estimates.items():
                 csv_row[key] = value
