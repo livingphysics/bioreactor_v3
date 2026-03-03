@@ -62,12 +62,17 @@ def run_ekf_replay(
     distrust_counter = 0
     last_time = times[0]
 
+    # Use median cycle interval for doubling time to avoid spikes from
+    # irregular sample spacing (the EKF state r is per-cycle, so dt_cycle
+    # directly scales the doubling time calculation).
+    dt_median = np.median(np.diff(times))
+
     od_est[0] = z0
     growth_rate[0] = initial_growth_rate
     od_std[0] = np.sqrt(initial_P_od)
     r_std[0] = np.sqrt(initial_P_r)
-    doubling_time_s[0] = np.inf
-    dt_std[0] = np.inf
+    doubling_time_s[0] = np.nan
+    dt_std[0] = np.nan
 
     I2 = np.eye(2)
     H_vec = np.array([1.0, 0.0])
@@ -141,15 +146,20 @@ def run_ekf_replay(
         od_std[i] = np.sqrt(P[0, 0])
         r_std[i] = np.sqrt(P[1, 1])
 
-        # Doubling time
+        # Doubling time — use median dt to avoid spikes from irregular sampling
         r_est = x[1]
-        if r_est > 1.0 and dt_cycle > 0:
+        if r_est > 1.0:
             ln_r = np.log(r_est)
-            doubling_time_s[i] = dt_cycle * np.log(2.0) / ln_r
-            dt_std[i] = dt_cycle * np.log(2.0) * r_std[i] / (r_est * ln_r ** 2)
+            dt_val = dt_median * np.log(2.0) / ln_r
+            if dt_val > 86400.0:  # > 24 hours is effectively no growth
+                doubling_time_s[i] = np.nan
+                dt_std[i] = np.nan
+            else:
+                doubling_time_s[i] = dt_val
+                dt_std[i] = dt_median * np.log(2.0) * r_std[i] / (r_est * ln_r ** 2)
         else:
-            doubling_time_s[i] = np.inf
-            dt_std[i] = np.inf
+            doubling_time_s[i] = np.nan
+            dt_std[i] = np.nan
 
     return {
         'od_est': od_est,
@@ -454,23 +464,24 @@ class EKFTuningGUI:
         # --- Doublings per hour plot ---
         ax = self.ax_dph
         ax.clear()
-        dt_s = result['doubling_time_s']
-        dt_std_s = result['dt_std']
-        # doublings/hr = 3600 / doubling_time_s
-        dph = np.where((dt_s > 0) & np.isfinite(dt_s), 3600.0 / dt_s, np.nan)
-        # σ_dph = 3600 * σ_dt / dt^2  (error propagation of 1/x)
-        dph_std = np.where((dt_s > 0) & np.isfinite(dt_s) & np.isfinite(dt_std_s),
-                           3600.0 * dt_std_s / (dt_s ** 2), np.nan)
+        dt_s = result['doubling_time_s'].copy()
+        dt_std_s = result['dt_std'].copy()
+        with np.errstate(divide='ignore', invalid='ignore'):
+            # doublings/hr = 3600 / doubling_time_s
+            dph = np.where((dt_s > 0) & np.isfinite(dt_s), 3600.0 / dt_s, np.nan)
+            # σ_dph = 3600 * σ_dt / dt^2  (error propagation of 1/x)
+            dph_std = np.where((dt_s > 0) & np.isfinite(dt_s) & np.isfinite(dt_std_s),
+                               3600.0 * dt_std_s / (dt_s ** 2), np.nan)
+            dph_upper = np.where(np.isfinite(dph) & np.isfinite(dph_std), dph + dph_std, np.nan)
+            dph_lower = np.where(np.isfinite(dph) & np.isfinite(dph_std),
+                                 np.maximum(dph - dph_std, 0), np.nan)
         ax.plot(t_min, dph, '-', color='#FF9800', linewidth=1.2, label='Doublings/hr')
-        dph_upper = np.where(np.isfinite(dph + dph_std), dph + dph_std, np.nan)
-        dph_lower = np.where(np.isfinite(dph - dph_std), np.maximum(dph - dph_std, 0), np.nan)
         ax.fill_between(t_min, dph_lower, dph_upper, color='#FF9800', alpha=0.15)
         for pt in pump_times:
             ax.axvline(pt, color='#FF5722', alpha=0.3, linewidth=0.8)
         ax.set_ylabel('Doublings/hr')
         # Auto-scale y
-        finite_dph = np.concatenate([dph, dph_upper])
-        finite_dph = finite_dph[np.isfinite(finite_dph)]
+        finite_dph = dph[np.isfinite(dph)]
         if len(finite_dph) > 0:
             p5, p95 = np.percentile(finite_dph, [5, 95])
             margin = (p95 - p5) * 0.15
@@ -481,14 +492,16 @@ class EKFTuningGUI:
         # --- Doubling time plot ---
         ax = self.ax_dt
         ax.clear()
-        dt_min = result['doubling_time_s'] / 60.0
-        # Replace inf with NaN so matplotlib skips gaps instead of clipping
-        dt_plot = np.where(np.isfinite(dt_min), dt_min, np.nan)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            dt_min = result['doubling_time_s'] / 60.0
+            dt_std_min = result['dt_std'] / 60.0
+            # Replace inf/huge values with NaN so matplotlib skips gaps
+            dt_plot = np.where(np.isfinite(dt_min), dt_min, np.nan)
+            dt_upper = np.where(np.isfinite(dt_plot) & np.isfinite(dt_std_min),
+                                dt_plot + dt_std_min, np.nan)
+            dt_lower = np.where(np.isfinite(dt_plot) & np.isfinite(dt_std_min),
+                                np.maximum(dt_plot - dt_std_min, 0), np.nan)
         ax.plot(t_min, dt_plot, '-', color='#9C27B0', linewidth=1.2, label='Doubling time')
-        # ±1σ band
-        dt_std_min = result['dt_std'] / 60.0
-        dt_upper = np.where(np.isfinite(dt_min + dt_std_min), dt_min + dt_std_min, np.nan)
-        dt_lower = np.where(np.isfinite(dt_min - dt_std_min), np.maximum(dt_min - dt_std_min, 0), np.nan)
         ax.fill_between(t_min, dt_lower, dt_upper, color='#9C27B0', alpha=0.15)
         if 'ekf_doubling_time_s' in self.original:
             orig_dt = self.original['ekf_doubling_time_s'] / 60.0
