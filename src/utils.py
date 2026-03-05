@@ -421,8 +421,8 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             for pname, total_time in bioreactor.pump_run_times.items():
                 csv_row[f"pump_{pname}_time_s"] = total_time
 
-        # Standalone EKF: compute estimates if no EKF job is already running
-        if not hasattr(bioreactor, 'ekf_estimates'):
+        # Standalone EKF: compute estimates if no turbidostat EKF job is running
+        if not getattr(bioreactor, '_turbidostat_ekf_active', False):
             _standalone_ekf_update(bioreactor, sensor_data, elapsed)
 
         # Add EKF estimates if available (from turbidostat or standalone)
@@ -1324,6 +1324,9 @@ def turbidostat_ekf_mode(
     else:
         doubling_time = float('inf')
         doubling_time_std = float('inf')
+
+    # Flag so standalone EKF in measure_and_record_sensors knows to skip
+    bioreactor._turbidostat_ekf_active = True
 
     # Store estimates so measure_and_record_sensors can write them to CSV
     bioreactor.ekf_estimates = {
