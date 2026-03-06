@@ -426,8 +426,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
     _init_mode = getattr(plot_config, 'EKF_PLOT_MODE', 'doubling_time')
     ekf_mode_idx = [ekf_mode_values.index(_init_mode) if _init_mode in ekf_mode_values else 0]
     ekf_btn = [None]  # mutable for closure
-    ekf_ax_ref = [None]  # store the EKF axis reference
-    ekf_data_ref = [None, None, None, None]  # [data, source_indices, source_times, columns]
+    ekf_ax_refs = {}  # {source_idx: ax} — per-source EKF axis references
+    ekf_data_refs = {}  # {source_idx: (data, source_indices, source_times, columns, source_name)}
     cache_dir = getattr(plot_config, 'CACHE_DIR', '/tmp/plot_csv_cache') if use_remote else None
     update_queue = queue.Queue()  # Queue for thread-safe updates
     update_flag = threading.Event()  # Flag to signal updates from background thread
@@ -704,7 +704,8 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 fig = None
                 axes = None
                 ekf_btn[0] = None
-                ekf_ax_ref[0] = None
+                ekf_ax_refs.clear()
+                ekf_data_refs.clear()
         
         # Create or update figure
         # Layout: Each bioreactor (source) gets a row, each row has subplots for each data type
@@ -1060,9 +1061,9 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                             ax.legend(fontsize=9)
 
                 if group_name == 'EKF':
-                    # Store references for the button callback
-                    ekf_ax_ref[0] = ax
-                    ekf_data_ref[:] = [data, source_indices, source_times, columns]
+                    # Store per-source references for the button callback
+                    ekf_ax_refs[source_idx] = ax
+                    ekf_data_refs[source_idx] = (data, source_indices, source_times, columns, source)
                     current_mode = ekf_mode_values[ekf_mode_idx[0]]
                     _draw_ekf_axis(ax, current_mode, data, source_indices, source_times, columns)
 
@@ -1077,13 +1078,14 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                             ekf_mode_idx[0] = (ekf_mode_idx[0] + 1) % len(ekf_mode_values)
                             new_mode = ekf_mode_values[ekf_mode_idx[0]]
                             ekf_btn[0].label.set_text(ekf_mode_labels[ekf_mode_idx[0]])
-                            target_ax = ekf_ax_ref[0]
-                            d, si, st, cols = ekf_data_ref
-                            target_ax.clear()
-                            target_ax.set_title('EKF')
-                            target_ax.set_xlabel(xlabel)
-                            target_ax.grid(True, alpha=0.3)
-                            _draw_ekf_axis(target_ax, new_mode, d, si, st, cols)
+                            for sidx, target_ax in ekf_ax_refs.items():
+                                d, si, st, cols, sname = ekf_data_refs[sidx]
+                                target_ax.clear()
+                                title = f'{sname} - EKF' if len(ekf_ax_refs) > 1 else 'EKF'
+                                target_ax.set_title(title)
+                                target_ax.set_xlabel(xlabel)
+                                target_ax.grid(True, alpha=0.3)
+                                _draw_ekf_axis(target_ax, new_mode, d, si, st, cols)
                             fig.canvas.draw_idle()
 
                         ekf_btn[0].on_clicked(_cycle_ekf_mode)
@@ -1091,8 +1093,10 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
         plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave room for suptitle
 
         # Reposition button after tight_layout (it moves axes)
-        if ekf_btn[0] is not None and ekf_ax_ref[0] is not None:
-            ax_pos = ekf_ax_ref[0].get_position()
+        if ekf_btn[0] is not None and ekf_ax_refs:
+            # Position button above the first (top) EKF axis
+            first_ekf_ax = ekf_ax_refs[min(ekf_ax_refs)]
+            ax_pos = first_ekf_ax.get_position()
             ekf_btn[0].ax.set_position([ax_pos.x0, ax_pos.y1 + 0.005, ax_pos.width * 0.4, 0.03])
 
         plt.draw()
