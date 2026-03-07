@@ -74,6 +74,13 @@ class Config:
         'Ref': 'A1',
         '90': 'A2',
     }  # Dictionary mapping channel names to ADS1115 pins (A0-A3)
+
+    # EKF OD Channel Configuration
+    # Channel name used by both the standalone EKF and turbidostat EKF.
+    # Must match a key from OD_ADC_CHANNELS (e.g. '135', '90') or an eyespy board name.
+    # When eyespy is active, reads 'eyespy_{name}_voltage'; when OD is active, reads 'od_{name}'.
+    # The turbidostat EKF resolves this to a CSV column label (e.g. 'OD_135_V') automatically.
+    EKF_OD_CHANNEL: str = '135'
     
     # Eyespy ADC Configuration (ADS1114, based on pioreactor pattern)
     # Supports multiple eyespy boards, each at a different I2C address

@@ -22,13 +22,16 @@ def _standalone_ekf_update(bioreactor, sensor_data, elapsed):
     uses the same maths as turbidostat_ekf_mode but without any pump logic.
     """
     # --- Pick the OD channel from sensor_data ---
+    config = getattr(bioreactor, 'config', None)
+    ekf_channel = getattr(config, 'EKF_OD_CHANNEL', '135') if config else '135'
+
     eyespy_init = bioreactor.is_component_initialized('eyespy_adc')
     od_init = bioreactor.is_component_initialized('optical_density')
 
     if eyespy_init:
-        z_k = sensor_data.get('eyespy_sct_voltage', float('nan'))
+        z_k = sensor_data.get(f'eyespy_{ekf_channel}_voltage', float('nan'))
     elif od_init:
-        z_k = sensor_data.get('od_135', float('nan'))
+        z_k = sensor_data.get(f'od_{ekf_channel.lower()}', float('nan'))
     else:
         return  # no OD sensor available
 
@@ -1139,7 +1142,7 @@ def turbidostat_ekf_mode(
     od_setpoint: float,
     pump_name: str = 'inflow',
     flow_rate_ml_s: float = 2.0,
-    od_channel: str = 'OD_135_V',
+    od_channel: Optional[str] = None,
     R: float = 0.001,
     Q_growth_rate: float = 5e-12,
     initial_growth_rate: float = 1.0,
@@ -1177,7 +1180,7 @@ def turbidostat_ekf_mode(
         od_setpoint: Target OD voltage. Pump triggers when estimated OD exceeds this.
         pump_name: Name of the inflow pump for independent_flow (default: 'inflow')
         flow_rate_ml_s: Flow rate in ml/sec for dilution events (default: 2.0)
-        od_channel: CSV column name for the OD reading (default: 'OD_135_V')
+        od_channel: CSV column name for the OD reading. If None, resolved from config.EKF_OD_CHANNEL.
         R: Measurement noise variance (default: 0.001)
         Q_growth_rate: Process noise variance for growth rate state (default: 5e-13)
         initial_growth_rate: Initial growth rate estimate (default: 1.0, no growth)
@@ -1197,6 +1200,25 @@ def turbidostat_ekf_mode(
         max_duty_cool: Max duty for cooling. None = use config.PELTIER_MAX_DUTY_COOL
         elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
     """
+    # --- Resolve OD channel to CSV column label ---
+    if od_channel is None:
+        config = getattr(bioreactor, 'config', None)
+        ekf_ch = getattr(config, 'EKF_OD_CHANNEL', '135') if config else '135'
+        # Resolve to CSV label: check SENSOR_LABELS, then auto-generate
+        eyespy_init = bioreactor.is_component_initialized('eyespy_adc')
+        if eyespy_init:
+            if config and hasattr(config, 'SENSOR_LABELS'):
+                od_channel = config.SENSOR_LABELS.get(f'eyespy_{ekf_ch}_voltage', f'Eyespy_{ekf_ch}_V')
+            else:
+                od_channel = f'Eyespy_{ekf_ch}_V'
+        else:
+            if config and hasattr(config, 'SENSOR_LABELS'):
+                od_channel = (config.SENSOR_LABELS.get(f'od_{ekf_ch.lower()}') or
+                              config.SENSOR_LABELS.get(f'od_{ekf_ch}') or
+                              f'OD_{ekf_ch}_V')
+            else:
+                od_channel = f'OD_{ekf_ch}_V'
+
     # --- Read latest OD from CSV ---
     if not hasattr(bioreactor, 'out_file_path'):
         bioreactor.logger.warning("Turbidostat: no out_file_path on bioreactor")
