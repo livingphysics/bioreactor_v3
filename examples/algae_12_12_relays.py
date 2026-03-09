@@ -7,10 +7,10 @@
 
 Relay schedule timeline (relay_3 and relay_4):
   0s  – 60s    : ON  (initial flush)
-  60s – 5 days : ON  (cycle 1 open)
-  5d  – 10d    : OFF (cycle 1 closed)
-  10d – 15d    : ON  (cycle 2 open)
-  15d – 20d    : OFF (cycle 2 closed)
+  60s – 5d     : OFF (cycle 1 closed)
+  5d  – 10d    : ON  (cycle 1 open)
+  10d – 15d    : OFF (cycle 2 closed)
+  15d – 20d    : ON  (cycle 2 open)
   20d –  ...   : OFF (indefinitely)
 """
 
@@ -44,17 +44,17 @@ DAY = 86400  # seconds in a day
 #   60s ON, then 5 days ON, 5 days OFF, 5 days ON, 5 days OFF, then OFF forever
 relay_steps = [
     (60,      'relay_3', True),   # initial 60s flush
-    (5*DAY,   'relay_3', True),   # cycle 1: open 5 days
     (5*DAY,   'relay_3', False),  # cycle 1: closed 5 days
-    (5*DAY,   'relay_3', True),   # cycle 2: open 5 days
+    (5*DAY,   'relay_3', True),   # cycle 1: open 5 days
     (5*DAY,   'relay_3', False),  # cycle 2: closed 5 days
+    (5*DAY,   'relay_3', True),   # cycle 2: open 5 days
     (None,    'relay_3', False),  # stay closed indefinitely
 
     (60,      'relay_4', True),
-    (5*DAY,   'relay_4', True),
     (5*DAY,   'relay_4', False),
     (5*DAY,   'relay_4', True),
     (5*DAY,   'relay_4', False),
+    (5*DAY,   'relay_4', True),
     (None,    'relay_4', False),
 ]
 
