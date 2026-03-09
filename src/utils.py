@@ -717,6 +717,84 @@ def temperature_profile(
     )
 
 
+def relay_schedule(
+    bioreactor,
+    schedule: list,
+    elapsed: Optional[float] = None,
+) -> None:
+    """
+    Run a relay schedule that changes relay states over time.
+
+    The schedule is a list of (duration_seconds, relay_name, state) tuples
+    executed in order *per relay*.  Steps for different relays run in
+    parallel: when the elapsed time falls within a step's window that
+    relay is set to the step's state.
+
+    Use ``None`` as the duration for the final step of a relay to hold
+    that state indefinitely.
+
+    Example:
+        # relay_1 ON for 1 hour then OFF; relay_2 ON for 2 hours then OFF
+        partial(relay_schedule, schedule=[
+            (3600, 'relay_1', True),
+            (None, 'relay_1', False),
+            (7200, 'relay_2', True),
+            (None, 'relay_2', False),
+        ])
+
+        # Both relays ON together for the first hour, relay_2 stays on
+        # for a second hour, then both OFF:
+        partial(relay_schedule, schedule=[
+            (3600, 'relay_1', True),
+            (None, 'relay_1', False),
+            (7200, 'relay_2', True),
+            (None, 'relay_2', False),
+        ])
+
+    Args:
+        bioreactor: Bioreactor instance
+        schedule: List of (duration, relay_name, state) tuples.
+                  duration is in seconds; use None to hold indefinitely.
+                  state is True (ON) or False (OFF).
+        elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
+    """
+    if elapsed is None or not schedule:
+        return
+
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("relay_schedule: relays not initialized")
+        return
+
+    from .io import relay_on, relay_off
+
+    # Group steps by relay, preserving order
+    per_relay: dict[str, list] = {}
+    for duration, relay_name, state in schedule:
+        per_relay.setdefault(relay_name, []).append((duration, state))
+
+    # Walk each relay's timeline independently
+    for relay_name, steps in per_relay.items():
+        t = 0.0
+        target_state = steps[-1][1]  # default to last step
+        for duration, state in steps:
+            if duration is None:
+                target_state = state
+                break
+            if elapsed < t + duration:
+                target_state = state
+                break
+            t += duration
+            target_state = state
+
+        # Only change relay if state differs to avoid excessive logging/neopixel refreshes
+        current = bioreactor.relay_driver.get_state(relay_name)
+        if current != target_state:
+            if target_state:
+                relay_on(bioreactor, relay_name)
+            else:
+                relay_off(bioreactor, relay_name)
+
+
 def ring_light_cycle(
     bioreactor,
     color: tuple = (50, 50, 50),

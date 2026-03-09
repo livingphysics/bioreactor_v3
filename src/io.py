@@ -250,6 +250,11 @@ class RingLightDriver:
         except Exception as e:
             self.bioreactor.logger.error(f"Failed to turn ring light off: {e}")
 
+    def refresh(self) -> None:
+        """Re-write the current colour to the strip (useful after SPI noise events)."""
+        if self._is_on:
+            self.set_color(self._current_color)
+
     @property
     def is_on(self) -> bool:
         """Check if ring light is on (any pixel has non-zero color)."""
@@ -281,25 +286,6 @@ class RelayDriver:
             return 0 if on else 1
         return 1 if on else 0
 
-    def _refresh_neopixels(self) -> None:
-        """Re-write the current neopixel colour after a delay to counteract SPI noise from relay switching."""
-        if not self.bioreactor.is_component_initialized('ring_light'):
-            return
-        rl = getattr(self.bioreactor, 'ring_light_driver', None)
-        if rl is None:
-            return
-
-        import threading
-
-        def _delayed_refresh():
-            time.sleep(0.5)
-            try:
-                rl.set_color(rl.current_color)
-            except Exception:
-                pass  # best-effort; don't let neopixel issues block relay control
-
-        threading.Thread(target=_delayed_refresh, daemon=True).start()
-
     def set(self, relay_name: str, state: bool) -> bool:
         """Turn a relay ON (True) or OFF (False)."""
         if relay_name not in self._relays:
@@ -312,7 +298,6 @@ class RelayDriver:
             lgpio.gpio_write(self._gpio_chip, pin, self._pin_value(state))
             self._states[relay_name] = state
             self.bioreactor.logger.info(f"Relay {relay_name} turned {'ON' if state else 'OFF'} (pin {pin})")
-            self._refresh_neopixels()
             return True
         except Exception as e:
             self.bioreactor.logger.error(f"Error setting relay {relay_name}: {e}")
