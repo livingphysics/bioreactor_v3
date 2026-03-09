@@ -419,6 +419,11 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     label = key
                 csv_row[label] = sensor_data[key]
 
+        # Add relay states if relays are initialized
+        if bioreactor.is_component_initialized('relays'):
+            for name, state in bioreactor.relay_driver.get_all_states().items():
+                csv_row[name] = int(state)
+
         # Add cumulative pump run times if tracked
         if hasattr(bioreactor, 'pump_run_times') and bioreactor.pump_run_times:
             for pname, total_time in bioreactor.pump_run_times.items():
