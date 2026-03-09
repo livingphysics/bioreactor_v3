@@ -37,6 +37,7 @@ class Config:
         'co2_sensor': False,  # Senseair K33 CO2 sensor (I2C)
         'o2_sensor': False,  # Atlas Scientific O2 sensor (I2C)
         'pumps': False,  # Pump control via ticUSB
+        'relays': False,  # GPIO relay control
     }
     
     # Sensor Labels for CSV output
@@ -113,6 +114,16 @@ class Config:
     O2_SENSOR_I2C_ADDRESS: Optional[int] = None  # I2C address for O2 sensor (None = use default: 0x6C)
     O2_SENSOR_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
     
+    # Relay Configuration (GPIO, active-low by default)
+    # Maps relay names to BCM GPIO pin numbers
+    RELAYS: dict[str, int] = {
+        'relay_1': 5,
+        'relay_2': 6,
+        'relay_3': 13,
+        'relay_4': 19,
+    }
+    RELAY_ACTIVE_LOW: bool = True  # True = pin LOW turns relay ON (most relay modules)
+
     # Pump Configuration (ticUSB protocol)
     # Default configuration: 2 pumps (inflow and outflow)
     # Add more pumps by extending the PUMPS dictionary
