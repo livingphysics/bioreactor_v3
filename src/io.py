@@ -282,16 +282,23 @@ class RelayDriver:
         return 1 if on else 0
 
     def _refresh_neopixels(self) -> None:
-        """Re-write the current neopixel colour to counteract SPI noise from relay switching."""
+        """Re-write the current neopixel colour after a delay to counteract SPI noise from relay switching."""
         if not self.bioreactor.is_component_initialized('ring_light'):
             return
         rl = getattr(self.bioreactor, 'ring_light_driver', None)
         if rl is None:
             return
-        try:
-            rl.set_color(rl.current_color)
-        except Exception:
-            pass  # best-effort; don't let neopixel issues block relay control
+
+        import threading
+
+        def _delayed_refresh():
+            time.sleep(0.5)
+            try:
+                rl.set_color(rl.current_color)
+            except Exception:
+                pass  # best-effort; don't let neopixel issues block relay control
+
+        threading.Thread(target=_delayed_refresh, daemon=True).start()
 
     def set(self, relay_name: str, state: bool) -> bool:
         """Turn a relay ON (True) or OFF (False)."""
