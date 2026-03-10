@@ -1283,6 +1283,9 @@ def turbidostat_ekf_mode(
         max_duty_cool: Max duty for cooling. None = use config.PELTIER_MAX_DUTY_COOL
         elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
     """
+    # Flag so standalone EKF in measure_and_record_sensors knows to skip
+    bioreactor._turbidostat_ekf_active = True
+
     # --- Resolve OD channel to CSV column label ---
     if od_channel is None:
         config = getattr(bioreactor, 'config', None)
@@ -1429,9 +1432,6 @@ def turbidostat_ekf_mode(
     else:
         doubling_time = float('inf')
         doubling_time_std = float('inf')
-
-    # Flag so standalone EKF in measure_and_record_sensors knows to skip
-    bioreactor._turbidostat_ekf_active = True
 
     # Store estimates so measure_and_record_sensors can write them to CSV
     bioreactor.ekf_estimates = {
