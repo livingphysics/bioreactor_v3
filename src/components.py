@@ -740,6 +740,53 @@ def init_pumps(bioreactor, config):
         return {'initialized': False, 'error': str(e)}
 
 
+def init_relays(bioreactor, config):
+    """
+    Initialize GPIO relay outputs using lgpio (Pi 5 compatible).
+
+    Reads RELAYS dict {name: pin} and RELAY_ACTIVE_LOW from config.
+    All relays are set to OFF on initialization.
+    """
+    try:
+        import lgpio
+        from .io import RelayDriver
+    except Exception as import_error:
+        logger.error(f"Relay driver dependencies missing: {import_error}")
+        return {'initialized': False, 'error': str(import_error)}
+
+    relays_config = getattr(config, 'RELAYS', {})
+    if not relays_config:
+        error_msg = "RELAYS dict is empty or not set in Config"
+        logger.error(error_msg)
+        return {'initialized': False, 'error': error_msg}
+
+    active_low = getattr(config, 'RELAY_ACTIVE_LOW', True)
+
+    gpio_chip = getattr(bioreactor, 'gpio_chip', None)
+    if gpio_chip is None:
+        try:
+            gpio_chip = lgpio.gpiochip_open(4)
+        except Exception:
+            gpio_chip = lgpio.gpiochip_open(0)
+        bioreactor.gpio_chip = gpio_chip
+
+    # Claim each pin as output and set to OFF
+    off_level = 1 if active_low else 0
+    try:
+        for name, pin in relays_config.items():
+            lgpio.gpio_claim_output(gpio_chip, pin, off_level)
+            logger.info(f"Relay '{name}' initialized on GPIO {pin}")
+    except Exception as e:
+        logger.error(f"Relay GPIO setup failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+    driver = RelayDriver(bioreactor, gpio_chip, relays_config, active_low)
+    bioreactor.relay_driver = driver
+    logger.info(f"Relays initialized: {list(relays_config.keys())}")
+
+    return {'initialized': True, 'driver': driver}
+
+
 # Component registry - maps component names to initialization functions
 COMPONENT_REGISTRY = {
     'i2c': init_i2c,
@@ -753,5 +800,6 @@ COMPONENT_REGISTRY = {
     'co2_sensor': init_co2_sensor,
     'o2_sensor': init_o2_sensor,
     'pumps': init_pumps,
+    'relays': init_relays,
 }
 

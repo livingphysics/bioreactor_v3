@@ -250,6 +250,11 @@ class RingLightDriver:
         except Exception as e:
             self.bioreactor.logger.error(f"Failed to turn ring light off: {e}")
 
+    def refresh(self) -> None:
+        """Re-write the current colour to the strip (useful after SPI noise events)."""
+        if self._is_on:
+            self.set_color(self._current_color)
+
     @property
     def is_on(self) -> bool:
         """Check if ring light is on (any pixel has non-zero color)."""
@@ -259,6 +264,71 @@ class RingLightDriver:
     def current_color(self) -> tuple:
         """Get current color setting."""
         return self._current_color
+
+
+class RelayDriver:
+    """GPIO relay controller using lgpio (Pi 5 compatible).
+
+    Supports active-low (default) and active-high relay modules.
+    Each instance manages a dict of named relays mapped to GPIO pins.
+    """
+
+    def __init__(self, bioreactor, gpio_chip, relays: Dict[str, int], active_low: bool = True):
+        self.bioreactor = bioreactor
+        self._gpio_chip = gpio_chip
+        self._relays = relays          # {name: pin}
+        self._active_low = active_low
+        self._states: Dict[str, bool] = {name: False for name in relays}
+
+    def _pin_value(self, on: bool) -> int:
+        """Return the GPIO level for the requested logical state."""
+        if self._active_low:
+            return 0 if on else 1
+        return 1 if on else 0
+
+    def set(self, relay_name: str, state: bool) -> bool:
+        """Turn a relay ON (True) or OFF (False)."""
+        if relay_name not in self._relays:
+            self.bioreactor.logger.error(
+                f"No relay named '{relay_name}'. Available: {list(self._relays.keys())}")
+            return False
+        try:
+            import lgpio
+            pin = self._relays[relay_name]
+            lgpio.gpio_write(self._gpio_chip, pin, self._pin_value(state))
+            self._states[relay_name] = state
+            self.bioreactor.logger.info(f"Relay {relay_name} turned {'ON' if state else 'OFF'} (pin {pin})")
+            return True
+        except Exception as e:
+            self.bioreactor.logger.error(f"Error setting relay {relay_name}: {e}")
+            return False
+
+    def toggle(self, relay_name: str) -> bool:
+        """Toggle a relay's state. Returns the new state."""
+        current = self._states.get(relay_name, False)
+        self.set(relay_name, not current)
+        return self._states.get(relay_name, False)
+
+    def set_all(self, state: bool) -> None:
+        """Set all relays to the same state."""
+        for name in self._relays:
+            self.set(name, state)
+
+    def get_state(self, relay_name: str) -> bool:
+        """Get the current logical state of a relay (True = ON)."""
+        return self._states.get(relay_name, False)
+
+    def get_all_states(self) -> Dict[str, bool]:
+        """Get the current state of every relay."""
+        return dict(self._states)
+
+    @property
+    def relay_names(self) -> list:
+        return list(self._relays.keys())
+
+    def off_all(self) -> None:
+        """Turn all relays OFF."""
+        self.set_all(False)
 
 
 def read_voltage(bioreactor, channel_name: str) -> Optional[float]:
@@ -1165,3 +1235,53 @@ def stop_all_pumps(bioreactor) -> None:
             change_pump(bioreactor, pump_name, 0.0)
         except Exception as e:
             bioreactor.logger.error(f"Error stopping pump {pump_name}: {e}")
+
+
+# ── Relay utility functions ──────────────────────────────────────────────────
+
+def relay_on(bioreactor, relay_name: str) -> bool:
+    """Turn a relay ON by name."""
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("Relays not initialized")
+        return False
+    return bioreactor.relay_driver.set(relay_name, True)
+
+
+def relay_off(bioreactor, relay_name: str) -> bool:
+    """Turn a relay OFF by name."""
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("Relays not initialized")
+        return False
+    return bioreactor.relay_driver.set(relay_name, False)
+
+
+def toggle_relay(bioreactor, relay_name: str) -> bool:
+    """Toggle a relay's state. Returns the new state."""
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("Relays not initialized")
+        return False
+    return bioreactor.relay_driver.toggle(relay_name)
+
+
+def get_relay_state(bioreactor, relay_name: str) -> bool:
+    """Get the current state of a relay (True = ON)."""
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("Relays not initialized")
+        return False
+    return bioreactor.relay_driver.get_state(relay_name)
+
+
+def get_all_relay_states(bioreactor) -> Dict[str, bool]:
+    """Get the state of all relays."""
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("Relays not initialized")
+        return {}
+    return bioreactor.relay_driver.get_all_states()
+
+
+def all_relays_off(bioreactor) -> None:
+    """Turn all relays OFF."""
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("Relays not initialized")
+        return
+    bioreactor.relay_driver.off_all()

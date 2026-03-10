@@ -419,6 +419,11 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     label = key
                 csv_row[label] = sensor_data[key]
 
+        # Add relay states if relays are initialized
+        if bioreactor.is_component_initialized('relays'):
+            for name, state in bioreactor.relay_driver.get_all_states().items():
+                csv_row[name] = int(state)
+
         # Add cumulative pump run times if tracked
         if hasattr(bioreactor, 'pump_run_times') and bioreactor.pump_run_times:
             for pname, total_time in bioreactor.pump_run_times.items():
@@ -710,6 +715,84 @@ def temperature_profile(
         max_duty_heat=max_duty_heat,
         max_duty_cool=max_duty_cool,
     )
+
+
+def relay_schedule(
+    bioreactor,
+    schedule: list,
+    elapsed: Optional[float] = None,
+) -> None:
+    """
+    Run a relay schedule that changes relay states over time.
+
+    The schedule is a list of (duration_seconds, relay_name, state) tuples
+    executed in order *per relay*.  Steps for different relays run in
+    parallel: when the elapsed time falls within a step's window that
+    relay is set to the step's state.
+
+    Use ``None`` as the duration for the final step of a relay to hold
+    that state indefinitely.
+
+    Example:
+        # relay_1 ON for 1 hour then OFF; relay_2 ON for 2 hours then OFF
+        partial(relay_schedule, schedule=[
+            (3600, 'relay_1', True),
+            (None, 'relay_1', False),
+            (7200, 'relay_2', True),
+            (None, 'relay_2', False),
+        ])
+
+        # Both relays ON together for the first hour, relay_2 stays on
+        # for a second hour, then both OFF:
+        partial(relay_schedule, schedule=[
+            (3600, 'relay_1', True),
+            (None, 'relay_1', False),
+            (7200, 'relay_2', True),
+            (None, 'relay_2', False),
+        ])
+
+    Args:
+        bioreactor: Bioreactor instance
+        schedule: List of (duration, relay_name, state) tuples.
+                  duration is in seconds; use None to hold indefinitely.
+                  state is True (ON) or False (OFF).
+        elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
+    """
+    if elapsed is None or not schedule:
+        return
+
+    if not bioreactor.is_component_initialized('relays'):
+        bioreactor.logger.warning("relay_schedule: relays not initialized")
+        return
+
+    from .io import relay_on, relay_off
+
+    # Group steps by relay, preserving order
+    per_relay: dict[str, list] = {}
+    for duration, relay_name, state in schedule:
+        per_relay.setdefault(relay_name, []).append((duration, state))
+
+    # Walk each relay's timeline independently
+    for relay_name, steps in per_relay.items():
+        t = 0.0
+        target_state = steps[-1][1]  # default to last step
+        for duration, state in steps:
+            if duration is None:
+                target_state = state
+                break
+            if elapsed < t + duration:
+                target_state = state
+                break
+            t += duration
+            target_state = state
+
+        # Only change relay if state differs to avoid excessive logging/neopixel refreshes
+        current = bioreactor.relay_driver.get_state(relay_name)
+        if current != target_state:
+            if target_state:
+                relay_on(bioreactor, relay_name)
+            else:
+                relay_off(bioreactor, relay_name)
 
 
 def ring_light_cycle(
@@ -1200,6 +1283,9 @@ def turbidostat_ekf_mode(
         max_duty_cool: Max duty for cooling. None = use config.PELTIER_MAX_DUTY_COOL
         elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
     """
+    # Flag so standalone EKF in measure_and_record_sensors knows to skip
+    bioreactor._turbidostat_ekf_active = True
+
     # --- Resolve OD channel to CSV column label ---
     if od_channel is None:
         config = getattr(bioreactor, 'config', None)
@@ -1346,9 +1432,6 @@ def turbidostat_ekf_mode(
     else:
         doubling_time = float('inf')
         doubling_time_std = float('inf')
-
-    # Flag so standalone EKF in measure_and_record_sensors knows to skip
-    bioreactor._turbidostat_ekf_active = True
 
     # Store estimates so measure_and_record_sensors can write them to CSV
     bioreactor.ekf_estimates = {
