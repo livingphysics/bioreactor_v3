@@ -94,8 +94,8 @@ with Bioreactor(config) as reactor:
 
         # EKF turbidostat (temp control handled by temperature_profile above)
         (partial(turbidostat_ekf_mode,
-            od_setpoint=2.0,
-            od_channel='Eyespy_sct_V',
+            od_setpoint=0.2,
+            od_channel='OD_135_V',
             R=0.003,
             Q_growth_rate=5e-12,
             pump_duration=60.0,
