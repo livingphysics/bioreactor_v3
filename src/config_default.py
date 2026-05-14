@@ -53,7 +53,9 @@ class Config:
     PELTIER_DIR_PIN: int = 20  # BCM pin for direction control
     PELTIER_PWM_FREQ: int = 1000  # PWM frequency in Hz
     PELTIER_MAX_DUTY_HEAT: float = 70.0  # Max duty cycle for heating (0-100, hardware safety limit)
-    PELTIER_MAX_DUTY_COOL: float = 10.0  # Max duty cycle for cooling (0-100, hardware safety limit)
+    PELTIER_MAX_DUTY_COOL: float = 100.0  # Max duty cycle for cooling (0-100, hardware safety limit)
+    PELTIER_MIN_DUTY_COOL: float = 50.0   # Min cooling duty when active; cooling is ineffective below this on this rig
+    PELTIER_DIR_INVERTED: bool = False    # Invert the DIR pin level; set True if peltier wiring produces opposite physical direction from the driver convention
 
     # Stirrer Configuration (PWM only)
     STIRRER_PWM_PIN: int = 12  # BCM pin for stirrer PWM output

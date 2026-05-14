@@ -521,6 +521,7 @@ def temperature_pid_controller(
     sensor_index: int = 0,
     max_duty_heat: Optional[float] = None,
     max_duty_cool: Optional[float] = None,
+    min_duty_cool: Optional[float] = None,
     derivative_alpha: float = 0.7
 ) -> None:
     """
@@ -542,7 +543,10 @@ def temperature_pid_controller(
         elapsed: Elapsed time since start (s). Used to estimate dt if dt is None.
         sensor_index: Index of temperature sensor to read (default: 0)
         max_duty_heat: Max duty for heating (0-100). None = use config.PELTIER_MAX_DUTY_HEAT (default 70)
-        max_duty_cool: Max duty for cooling (0-100). None = use config.PELTIER_MAX_DUTY_COOL (default 70)
+        max_duty_cool: Max duty for cooling (0-100). None = use config.PELTIER_MAX_DUTY_COOL (default 100)
+        min_duty_cool: Min cooling duty when active (0-100). None = use config.PELTIER_MIN_DUTY_COOL (default 50).
+            On hardware where cooling is ineffective below some threshold, the floor lets any
+            non-zero cooling demand jump straight to this level instead of ramping from 0%.
         derivative_alpha: Derivative filter coefficient (default: 0.7, 0-1, higher = less filtering)
         
     Note:
@@ -614,14 +618,21 @@ def temperature_pid_controller(
         # If error < 0 (too hot), output < 0, we need to COOL
         direction = 'heat' if output > 0 else 'cool'
         
-        # Resolve max duty from config if not explicitly provided
+        # Resolve duty band limits from config if not explicitly provided
         config = getattr(bioreactor, 'cfg', None)
         limit_heat = max_duty_heat if max_duty_heat is not None else (getattr(config, 'PELTIER_MAX_DUTY_HEAT', 70.0) if config else 70.0)
-        limit_cool = max_duty_cool if max_duty_cool is not None else (getattr(config, 'PELTIER_MAX_DUTY_COOL', 70.0) if config else 70.0)
-        max_duty = limit_heat if direction == 'heat' else limit_cool
-        
-        # Convert output to duty cycle (0-100) and clamp to max_duty (hardware safety limit)
-        duty = max(0, min(max_duty, abs(output)))
+        limit_cool_max = max_duty_cool if max_duty_cool is not None else (getattr(config, 'PELTIER_MAX_DUTY_COOL', 100.0) if config else 100.0)
+        limit_cool_min = min_duty_cool if min_duty_cool is not None else (getattr(config, 'PELTIER_MIN_DUTY_COOL', 0.0) if config else 0.0)
+
+        # Convert output to duty cycle.
+        # Cooling has a min-duty floor: any non-zero cooling demand jumps to limit_cool_min
+        # because cooling is ineffective below that threshold on this hardware.
+        if direction == 'cool' and abs(output) > 0:
+            duty = max(limit_cool_min, min(limit_cool_max, abs(output)))
+        elif direction == 'heat' and abs(output) > 0:
+            duty = max(0, min(limit_heat, abs(output)))
+        else:
+            duty = 0
         
         # Apply peltier control
         if bioreactor.is_component_initialized('peltier_driver'):

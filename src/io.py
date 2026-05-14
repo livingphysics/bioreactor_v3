@@ -42,17 +42,24 @@ class PeltierDriver:
         except (TypeError, ValueError):
             raise ValueError("Duty cycle must be numeric between 0 and 100") from None
 
+        # Apply DIR-pin inversion if configured (for rigs wired opposite to the driver convention)
+        cfg = getattr(self.bioreactor, 'cfg', None)
+        invert = bool(getattr(cfg, 'PELTIER_DIR_INVERTED', False)) if cfg else False
+        pin_level = 1 if (forward != invert) else 0
+
         try:
-            lgpio.gpio_write(self._gpio_chip, self._dir_pin, 1 if forward else 0)
+            lgpio.gpio_write(self._gpio_chip, self._dir_pin, pin_level)
             lgpio.tx_pwm(self._gpio_chip, self._pwm_pin, self._frequency, duty)
         except Exception as e:
             self.bioreactor.logger.error(f"Failed to update peltier PWM: {e}")
             return False
 
+        # Store the caller's intent (not the inverted pin level) so get_state() reflects what was asked for.
         self._last_duty = duty
         self._last_forward = forward
         self.bioreactor.logger.info(
             f"Peltier set to {duty:.1f}% duty, direction {'forward' if forward else 'reverse'}"
+            f"{' (DIR inverted)' if invert else ''}"
         )
         return True
 
