@@ -538,7 +538,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 return
             ax.set_ylabel('Doubling time (hours)')
             ax.ticklabel_format(axis='y', useOffset=False, style='plain')
-            ax.set_ylim(0, 10)
+            ax.set_ylim(5, 500)
 
             source_values = [data[dt_col][i] for i in source_indices]
             valid_indices = [i for i, v in enumerate(source_values)
@@ -564,8 +564,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
                 return
             ax.set_ylabel('Doublings per hour')
             ax.ticklabel_format(axis='y', useOffset=False, style='plain')
-            dph_ylim = getattr(plot_config, 'EKF_DOUBLINGS_PER_HOUR_YLIM', (0, 4))
-            ax.set_ylim(*dph_ylim)
+            ax.set_ylim(0, 0.5)
 
             source_values = [data[dt_col][i] for i in source_indices]
             valid_indices = [i for i, v in enumerate(source_values)
