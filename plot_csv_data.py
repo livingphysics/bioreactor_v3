@@ -874,6 +874,28 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
 
                     ax.legend(fontsize=9)
 
+                    # Display current OD reference voltage as text in the corner
+                    # Search all data columns (not just plotted ones) for the ref voltage
+                    ref_col = None
+                    for col in data.keys():
+                        col_lower = col.lower()
+                        if 'ref' in col_lower and ('od' in col_lower or 'eyespy' in col_lower):
+                            ref_col = col
+                            break
+                    if ref_col and ref_col in data:
+                        ref_values = [data[ref_col][i] for i in source_indices]
+                        # Find last valid (non-NaN) value
+                        last_val = None
+                        for v in reversed(ref_values):
+                            if not np.isnan(v):
+                                last_val = v
+                                break
+                        if last_val is not None:
+                            ax.text(0.02, 0.95, f'{ref_col}: {last_val:.2f} V',
+                                    transform=ax.transAxes, fontsize=10,
+                                    verticalalignment='top',
+                                    bbox=dict(boxstyle='round,pad=0.3', facecolor='wheat', alpha=0.7))
+
                 elif group_name == 'Temperature':
                     ax.set_ylabel('Temperature (°C)')
                     # Plot Temperature columns
