@@ -9,7 +9,8 @@ USB using the `ticlib` Python library.
 - Init function: `src/components.py::init_pumps`
 - Control functions: `src/io.py::change_pump`, `stop_pump`, `stop_all_pumps`
 - Coordinated flow helpers: `src/utils.py::balanced_flow`,
-  `independent_flow`, `chemostat_mode`, `turbidostat_ekf_mode`
+  `independent_flow`, `chemostat_mode`, `chemostat_duty_mode`,
+  `chemostat_schedule`, `turbidostat_ekf_mode`
 
 ## 1. Prerequisites
 
@@ -168,6 +169,41 @@ Reads the most recent OD row from the run's CSV, runs an EKF, and triggers
 `independent_flow` when estimated OD exceeds `od_setpoint`. After each
 dilution event it inflates `P[0,0]` for `pump_distrust_cycles` cycles to
 absorb the OD discontinuity.
+
+### `chemostat_duty_mode(reactor, duty, pump_name='inflow', flow_rate_ml_s=2.0, period=1.0, outflow_margin=1.1, ...)`
+
+Continuous chemostat by *duty cycling* the pumps at the fixed turbidostat
+("EKF") speed instead of triggering on OD. Each call is one duty cycle of
+`period` seconds (default 1.0 s): the pumps run at `flow_rate_ml_s` for
+`duty * period` seconds (`duty` in `[0, 1]`, clamped), then idle for the rest,
+giving a mean dilution of `duty * flow_rate_ml_s` ml/s. Inflow runs for
+`duty * period`; outflow runs `outflow_margin`× longer (capped at `period`) to
+pin the level to the outflow tube, the same overfill margin as
+`independent_flow`. Sets `pumping_active` during each pulse but leaves
+`_turbidostat_ekf_active` unset, so the standalone EKF still tracks OD/growth.
+
+The call blocks for the whole `period`, so schedule it **continuously**:
+`(partial(chemostat_duty_mode, duty=0.25, flow_rate_ml_s=2.0), True, True)`.
+Run temperature as a separate job (leave `temp_setpoint=None`) to keep the
+duty-cycle timing exact.
+
+### `chemostat_schedule(reactor, schedule, pump_name='inflow', flow_rate_ml_s=2.0, ...)`
+
+The dilution analogue of `temperature_profile`: walks a list of
+`(duration_seconds, duty)` steps by elapsed time and feeds the current `duty`
+to `chemostat_duty_mode`. Use `None` for the final duration to hold the last
+duty indefinitely. Schedule it continuously like `chemostat_duty_mode`.
+
+```python
+from functools import partial
+from src.utils import chemostat_schedule
+# 0.1 duty for 2 h, then 0.3 for 2 h, then hold 0.2 indefinitely
+jobs = [(partial(chemostat_schedule, schedule=[
+    (2 * 3600, 0.1),
+    (2 * 3600, 0.3),
+    (None,     0.2),
+], flow_rate_ml_s=2.0), True, True)]
+```
 
 ## 6. Calibrating `steps_per_ml`
 
