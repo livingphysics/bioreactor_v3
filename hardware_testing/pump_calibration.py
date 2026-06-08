@@ -109,7 +109,8 @@ DEFAULT_SPEEDS = "2.0"             # ml/s, comma separated
 DEFAULT_DURATION = 30.0            # s of pumping per trial
 DEFAULT_REPLICATES = 3
 DEFAULT_SETTLE = 10.0              # s to wait after stopping before weighing
-DEFAULT_PRIME = 5.0                # s to run the pump before the first trial
+DEFAULT_PRIME = 60.0               # s; max time to wait for flow while priming
+DEFAULT_PRIME_THRESHOLD = 0.05     # g; weight change that means flow reached the scale
 
 
 def parse_weight(s: str) -> Optional[float]:
@@ -279,6 +280,54 @@ def run_trial(reactor, scale: ScaleReader, name: str, speed: float,
     }
 
 
+def prime_until_flow(reactor, scale: ScaleReader, name: str, speed: float,
+                     threshold: float, timeout: float) -> bool:
+    """Run the pump until the scale weight starts to change (line fully primed).
+
+    Reads a stable baseline, then runs the pump and polls the scale until the
+    weight differs from the baseline by ``threshold`` grams on two consecutive
+    reads (liquid has reached the vessel), or ``timeout`` seconds elapse. Using
+    single reads (not stable reads) because the weight is moving while priming.
+    """
+    print(f"\nPriming '{name}' at {speed} ml/s until flow is detected "
+          f"(>{threshold:g} g change, max {timeout:g}s)...")
+    baseline = scale.read_stable()
+    print(f"  baseline mass: {baseline:.4f} g")
+
+    w = None
+    detected = False
+    consecutive = 0
+    t_start = time.monotonic()
+    try:
+        change_pump(reactor, name, speed)
+        while (time.monotonic() - t_start) < timeout:
+            try:
+                w = scale.read_once()
+            except (serial.SerialException, OSError) as e:
+                print(f"  scale read error during prime: {e}; reconnecting...")
+                scale.close()
+                time.sleep(0.5)
+                continue
+            if w is not None and abs(w - baseline) >= threshold:
+                consecutive += 1
+                if consecutive >= 2:   # confirm, so a single noisy spike won't trip it
+                    detected = True
+                    break
+            else:
+                consecutive = 0
+            time.sleep(0.2)
+    finally:
+        stop_pump(reactor, name)
+
+    elapsed = time.monotonic() - t_start
+    if detected:
+        print(f"  flow detected after {elapsed:.1f}s (now {w:.4f} g); line primed.")
+    else:
+        print(f"  WARNING: no weight change > {threshold:g} g within {timeout:g}s. "
+              f"Check the reservoir/tubing and scale. Continuing anyway.")
+    return detected
+
+
 def calibrate_pump(name: str, entry: dict, scale: ScaleReader, args) -> Optional[dict]:
     """Calibrate a single pump and return its JSON config entry (or None)."""
     print("\n" + "=" * 70)
@@ -306,14 +355,13 @@ def calibrate_pump(name: str, entry: dict, scale: ScaleReader, args) -> Optional
 
         ref_steps_per_ml = reactor.pump_configs[name].get('steps_per_ml', 10_000_000.0)
 
-        # Prime the line so the tube is full before the first measured trial.
+        # Prime the line: run the pump until the scale weight starts to change,
+        # so we know liquid has actually reached the vessel and the tube is full.
         if args.prime > 0:
-            print(f"\nPriming the line: {args.prime}s at {args.speeds_list[0]} ml/s...")
-            try:
-                change_pump(reactor, name, args.speeds_list[0])
-                time.sleep(args.prime)
-            finally:
-                stop_pump(reactor, name)
+            prime_until_flow(
+                reactor, scale, name, args.speeds_list[0],
+                threshold=args.prime_threshold, timeout=args.prime,
+            )
             time.sleep(args.settle)
 
         trials: List[dict] = []
@@ -400,8 +448,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--settle", type=float, default=DEFAULT_SETTLE,
                    help="Seconds to wait after stopping before weighing.")
     p.add_argument("--prime", type=float, default=DEFAULT_PRIME,
-                   help="Seconds to run the pump before the first trial to fill "
-                        "the line (0 to skip).")
+                   help="Max seconds to run the pump while waiting for flow to "
+                        "reach the scale during priming (0 to skip priming).")
+    p.add_argument("--prime-threshold", type=float, default=DEFAULT_PRIME_THRESHOLD,
+                   help="Weight change in grams that signals the line is primed "
+                        "(flow has reached the scale).")
     p.add_argument("--density", type=float, default=DEFAULT_DENSITY,
                    help="Liquid density in g/mL for mass->volume conversion.")
     p.add_argument("--port", default=DEFAULT_PORT, help="Scale serial port.")

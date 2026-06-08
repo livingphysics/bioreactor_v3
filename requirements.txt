@@ -8,3 +8,4 @@ ticlib
 pi5neo
 atlas-i2c
 paramiko
+pyserial
