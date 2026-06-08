@@ -138,6 +138,18 @@ def _standalone_ekf_update(bioreactor, sensor_data, elapsed):
     }
 
 
+def _clean_od_reading(value):
+    """OD/eyespy readings are non-negative; map None or negative values to NaN.
+
+    A negative optical-density voltage is non-physical (sensor/ADC fault), so it
+    is treated as a missing reading. NaN inputs pass through unchanged, and the
+    ``value is None`` check short-circuits before the comparison.
+    """
+    if value is None or value < 0:
+        return float('nan')
+    return value
+
+
 def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
     """
     Measure and record sensor data from OD channels and Temperature to CSV file (no plotting).
@@ -201,11 +213,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             if od_initialized and od_channel_names:
                 for ch_name in od_channel_names:
                     plot_key = f"od_{ch_name.lower()}"
-                    od_value = od_results.get(ch_name, None)
-                    if od_value is not None:
-                        sensor_data[plot_key] = od_value
-                    else:
-                        sensor_data[plot_key] = float('nan')
+                    sensor_data[plot_key] = _clean_od_reading(od_results.get(ch_name, None))
             elif od_channel_names:
                 # OD channels requested but not initialized - set to NaN
                 for ch_name in od_channel_names:
@@ -215,8 +223,8 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             # Extract eyespy readings from od_results (averaged voltages with LED on)
             if eyespy_initialized and hasattr(bioreactor, 'eyespy_boards'):
                 for board_name in bioreactor.eyespy_boards.keys():
-                    eyespy_voltage = od_results.get(board_name, None)
-                    if eyespy_voltage is not None:
+                    eyespy_voltage = _clean_od_reading(od_results.get(board_name, None))
+                    if not np.isnan(eyespy_voltage):
                         # Store the averaged voltage from measure_od (LED was on during measurement)
                         sensor_data[f"eyespy_{board_name}_voltage"] = eyespy_voltage
                         # Also get raw value for completeness (single reading after LED is off)
@@ -242,8 +250,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         if bioreactor.is_component_initialized('optical_density') and od_channel_names:
             for ch_name in od_channel_names:
                 plot_key = f"od_{ch_name.lower()}"
-                od_value = read_voltage(bioreactor, ch_name)
-                sensor_data[plot_key] = od_value if od_value is not None else float('nan')
+                sensor_data[plot_key] = _clean_od_reading(read_voltage(bioreactor, ch_name))
         else:
             # No OD available, set all to NaN
             for ch_name in od_channel_names:
@@ -260,11 +267,8 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     # Store raw value
                     sensor_data[f"eyespy_{board_name}_raw"] = raw_value
                     # Also get voltage (single reading, LED off)
-                    voltage = read_eyespy_voltage(bioreactor, board_name)
-                    if voltage is not None:
-                        sensor_data[f"eyespy_{board_name}_voltage"] = voltage
-                    else:
-                        sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
+                    voltage = _clean_od_reading(read_eyespy_voltage(bioreactor, board_name))
+                    sensor_data[f"eyespy_{board_name}_voltage"] = voltage
                 else:
                     sensor_data[f"eyespy_{board_name}_raw"] = float('nan')
                     sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
