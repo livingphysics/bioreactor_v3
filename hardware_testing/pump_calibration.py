@@ -98,6 +98,12 @@ except ImportError as e:
     raise
 
 
+# Pololu Tic velocity unit: microsteps (pulses) per 10,000 SECONDS — NOT per
+# second. set_target_velocity(V) drives the motor at V / 10,000 microsteps/s.
+# See https://www.pololu.com/docs/0J71/5.1 ("speeds in units of pulses per
+# 10,000 seconds"). steps_per_ml therefore equals 10,000 x (microsteps per ml).
+TIC_VELOCITY_SCALE = 10_000
+
 # ── Defaults ──────────────────────────────────────────────────────────────────
 DEFAULT_PORT = "/dev/ttyUSB0"
 DEFAULT_BAUDRATE = 9600
@@ -105,6 +111,10 @@ DEFAULT_TOLERANCE = 0.001          # g; stability window for a "stable" reading
 DEFAULT_READ_TIMEOUT = 1.0         # s; serial read timeout
 DEFAULT_READ_BYTES = 18            # bytes to read per 'w' query
 DEFAULT_DENSITY = 0.998            # g/mL (water near room temperature)
+# Fixed reference used ONLY to turn --speeds (ml/s) into a Tic velocity for the
+# test motion. Kept independent of the saved calibration so that re-running the
+# calibration commands the same velocity every time (re-runs are reproducible).
+DEFAULT_REF_STEPS_PER_ML = 10_000_000.0
 DEFAULT_SPEEDS = "2.0"             # ml/s, comma separated
 DEFAULT_DURATION = 30.0            # s of pumping per trial
 DEFAULT_REPLICATES = 3
@@ -126,6 +136,23 @@ def commanded_velocity(ml_per_sec: float, steps_per_ml: float) -> int:
     real number of steps the pump executed, including the 8-step rounding.
     """
     return 8 * int(ml_per_sec * steps_per_ml / 8)
+
+
+def _tic_var(pump, *getter_names):
+    """Safely read a Tic variable (e.g. current position) via ticlib.
+
+    Tries each candidate getter name and returns the first that works, or None
+    if none are available (so the caller can fall back gracefully).
+    """
+    for gname in getter_names:
+        fn = getattr(pump, gname, None)
+        if fn is None:
+            continue
+        try:
+            return fn()
+        except Exception:
+            return None
+    return None
 
 
 class ScaleReader:
@@ -216,13 +243,21 @@ class ScaleReader:
         )
 
 
-def build_pump_config(name: str, entry: dict) -> Config:
-    """Make a Config with only the named pump enabled (so only it initializes)."""
+def build_pump_config(name: str, entry: dict, command_steps_per_ml: float) -> Config:
+    """Make a Config with only the named pump enabled (so only it initializes).
+
+    The pump's steps_per_ml is overridden with ``command_steps_per_ml`` (a fixed
+    reference) so the velocity commanded during calibration does NOT depend on
+    the currently-saved calibration. That decoupling is what makes re-running the
+    calibration reproducible instead of feeding each result back into the next.
+    """
     config = Config()
     # Assign fresh dicts so we never mutate the shared class-level attributes.
     config.INIT_COMPONENTS = {k: False for k in Config.INIT_COMPONENTS}
     config.INIT_COMPONENTS['pumps'] = True
-    config.PUMPS = {name: copy.deepcopy(entry)}
+    pump_entry = copy.deepcopy(entry)
+    pump_entry['steps_per_ml'] = command_steps_per_ml
+    config.PUMPS = {name: pump_entry}
     # Keep this a throwaway calibration run: don't spawn a dated results package.
     config.RESULTS_PACKAGE = False
     config.DATA_OUT_FILE = 'pump_calibration_scratch.csv'
@@ -231,23 +266,46 @@ def build_pump_config(name: str, entry: dict) -> Config:
 
 def run_trial(reactor, scale: ScaleReader, name: str, speed: float,
               duration: float, settle: float, ref_steps_per_ml: float,
-              density: float, label: str) -> Optional[dict]:
-    """Run one pump-and-weigh trial; returns a dict of measurements (or None)."""
+              density: float, label: str,
+              max_speed: Optional[int] = None) -> Optional[dict]:
+    """Run one pump-and-weigh trial; returns a dict of measurements (or None).
+
+    steps_per_ml is derived from the *actual* number of steps the Tic moved (its
+    current-position counter) rather than the commanded velocity. The Tic clamps
+    the motor to its configured Max speed and ramps through acceleration, so the
+    commanded velocity is NOT what the motor actually did; counting real steps
+    makes the result immune to clamping, ramping, and timing error.
+    """
+    pump = reactor.pumps[name]
     velocity = commanded_velocity(speed, ref_steps_per_ml)
     print(f"\n[{label}] speed={speed} ml/s  duration={duration}s  "
-          f"(Tic velocity {velocity})")
+          f"(commanded Tic velocity {velocity} = "
+          f"{velocity / TIC_VELOCITY_SCALE:g} steps/s)")
+    if max_speed is not None and abs(velocity) > max_speed:
+        print(f"  WARNING: commanded velocity {velocity} exceeds the device Max "
+              f"speed {max_speed}; the Tic will clamp the motor to Max speed. The "
+              f"result stays correct (steps are counted), but flow is slower than "
+              f"requested — raise Max speed in ticgui or lower --speeds for more "
+              f"volume per trial.")
 
     print("  reading starting mass...")
     mass_before = scale.read_stable()
     print(f"  start: {mass_before:.4f} g")
 
+    pos_before = _tic_var(pump, "get_current_position")
+    actual_velocity = None
     t_start = time.monotonic()
     try:
         change_pump(reactor, name, speed)
         time.sleep(duration)
+        # Read the Tic's actual current velocity while still running (after the
+        # acceleration ramp, and reflecting any Max-speed clamping) for the record
+        # and as a fallback if the position counter is unavailable.
+        actual_velocity = _tic_var(pump, "get_current_velocity")
     finally:
         stop_pump(reactor, name)
     run_seconds = time.monotonic() - t_start
+    pos_after = _tic_var(pump, "get_current_position")
     print(f"  pumped for {run_seconds:.2f} s; settling {settle}s...")
     time.sleep(settle)
 
@@ -261,21 +319,48 @@ def run_trial(reactor, scale: ScaleReader, name: str, speed: float,
         print("  WARNING: no measurable mass change; skipping this trial.")
         return None
     dispensed_ml = dispensed_g / density
-    total_steps = abs(velocity) * run_seconds
-    steps_per_ml = total_steps / dispensed_ml
 
+    # calibration_steps is the numerator such that steps_per_ml = numerator / ml,
+    # in the same per-10,000-s convention that change_pump uses.
+    steps_moved = None
+    if pos_before is not None and pos_after is not None:
+        steps_moved = abs(pos_after - pos_before)
+    if steps_moved:
+        # Exact: position counter is in microsteps; scale to the Tic velocity unit.
+        calibration_steps = TIC_VELOCITY_SCALE * steps_moved
+        method = "position_counter"
+    elif actual_velocity:
+        calibration_steps = abs(actual_velocity) * run_seconds
+        method = "current_velocity"
+    else:
+        calibration_steps = abs(velocity) * run_seconds
+        method = "commanded_velocity"
+        print("  WARNING: could not read the Tic position or velocity; falling "
+              "back to the COMMANDED velocity. If the motor was clamped this will "
+              "be wrong — check that your ticlib exposes get_current_position / "
+              "get_current_velocity.")
+
+    steps_per_ml = calibration_steps / dispensed_ml
+
+    extra = f", steps_moved={steps_moved}" if steps_moved else ""
     print(f"  dispensed {dispensed_g:.4f} g ({'gain' if delta > 0 else 'loss'}) "
-          f"= {dispensed_ml:.4f} ml  ->  steps_per_ml = {steps_per_ml:,.1f}")
+          f"= {dispensed_ml:.4f} ml  | method={method}{extra}  ->  "
+          f"steps_per_ml = {steps_per_ml:,.1f}")
 
     return {
         "speed_ml_per_s": speed,
         "commanded_velocity": velocity,
+        "actual_velocity": actual_velocity,
+        "device_max_speed": max_speed,
         "duration_s": duration,
         "run_seconds": round(run_seconds, 3),
+        "steps_moved": steps_moved,
+        "measurement_method": method,
         "mass_before_g": round(mass_before, 4),
         "mass_after_g": round(mass_after, 4),
         "dispensed_g": round(dispensed_g, 4),
         "dispensed_ml": round(dispensed_ml, 4),
+        "calibration_steps": calibration_steps,
         "steps_per_ml": steps_per_ml,
     }
 
@@ -345,15 +430,25 @@ def calibrate_pump(name: str, entry: dict, scale: ScaleReader, args) -> Optional
         except EOFError:
             pass
 
-    config = build_pump_config(name, entry)
+    config = build_pump_config(name, entry, command_steps_per_ml=args.ref_steps_per_ml)
     reactor = Bioreactor(config, script_path=os.path.abspath(__file__))
+    ref_steps_per_ml = args.ref_steps_per_ml
+    max_speed = None
     try:
         if not reactor.is_component_initialized('pumps') or name not in getattr(reactor, 'pumps', {}):
             print(f"  ERROR: pump '{name}' failed to initialize (Tic not found?). "
                   f"Skipping.")
             return None
 
-        ref_steps_per_ml = reactor.pump_configs[name].get('steps_per_ml', 10_000_000.0)
+        pump = reactor.pumps[name]
+        max_speed = _tic_var(pump, "get_max_speed")
+        if max_speed is not None:
+            print(f"  device Max speed = {max_speed} "
+                  f"({max_speed / TIC_VELOCITY_SCALE:g} steps/s); commanding at a "
+                  f"fixed reference of {ref_steps_per_ml:,.0f} steps_per_ml.")
+        else:
+            print("  NOTE: could not read the device Max speed from ticlib; "
+                  "clamping cannot be checked automatically.")
 
         # Prime the line: run the pump until the scale weight starts to change,
         # so we know liquid has actually reached the vessel and the tube is full.
@@ -377,7 +472,7 @@ def calibrate_pump(name: str, entry: dict, scale: ScaleReader, args) -> Optional
                     reactor, scale, name, speed,
                     duration=args.duration, settle=args.settle,
                     ref_steps_per_ml=ref_steps_per_ml, density=args.density,
-                    label=label,
+                    label=label, max_speed=max_speed,
                 )
                 if trial is not None:
                     trials.append(trial)
@@ -395,8 +490,9 @@ def calibrate_pump(name: str, entry: dict, scale: ScaleReader, args) -> Optional
         print(f"  No valid trials for '{name}'; not writing a calibration.")
         return None
 
-    # Combined estimate: total steps / total volume (volume-weighted, through 0).
-    total_steps = sum(t["commanded_velocity"] * t["run_seconds"] for t in trials)
+    # Combined estimate: total measured steps / total volume (volume-weighted,
+    # through the origin) using the actual steps each trial moved.
+    total_steps = sum(t["calibration_steps"] for t in trials)
     total_ml = sum(t["dispensed_ml"] for t in trials)
     steps_per_ml_combined = total_steps / total_ml
     per_trial = [t["steps_per_ml"] for t in trials]
@@ -419,7 +515,10 @@ def calibrate_pump(name: str, entry: dict, scale: ScaleReader, args) -> Optional
         "calibration": {
             "generated": datetime.now().isoformat(timespec="seconds"),
             "density_g_per_ml": args.density,
-            "reference_steps_per_ml": ref_steps_per_ml,
+            "command_reference_steps_per_ml": ref_steps_per_ml,
+            "tic_velocity_scale": TIC_VELOCITY_SCALE,
+            "device_max_speed": max_speed,
+            "measurement_methods": sorted({t["measurement_method"] for t in trials}),
             "scale_port": args.port,
             "n_trials": len(trials),
             "steps_per_ml_combined": steps_per_ml_combined,
@@ -455,6 +554,10 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "(flow has reached the scale).")
     p.add_argument("--density", type=float, default=DEFAULT_DENSITY,
                    help="Liquid density in g/mL for mass->volume conversion.")
+    p.add_argument("--ref-steps-per-ml", type=float, default=DEFAULT_REF_STEPS_PER_ML,
+                   help="Fixed reference for turning --speeds into a Tic velocity "
+                        "during the test. Independent of the saved calibration so "
+                        "re-runs command the same velocity (keep it constant).")
     p.add_argument("--port", default=DEFAULT_PORT, help="Scale serial port.")
     p.add_argument("--baud", type=int, default=DEFAULT_BAUDRATE,
                    help="Scale serial baud rate.")
