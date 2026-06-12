@@ -138,6 +138,18 @@ def _standalone_ekf_update(bioreactor, sensor_data, elapsed):
     }
 
 
+def _clean_od_reading(value):
+    """OD/eyespy readings are non-negative; map None or negative values to NaN.
+
+    A negative optical-density voltage is non-physical (sensor/ADC fault), so it
+    is treated as a missing reading. NaN inputs pass through unchanged, and the
+    ``value is None`` check short-circuits before the comparison.
+    """
+    if value is None or value < 0:
+        return float('nan')
+    return value
+
+
 def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
     """
     Measure and record sensor data from OD channels and Temperature to CSV file (no plotting).
@@ -201,11 +213,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             if od_initialized and od_channel_names:
                 for ch_name in od_channel_names:
                     plot_key = f"od_{ch_name.lower()}"
-                    od_value = od_results.get(ch_name, None)
-                    if od_value is not None:
-                        sensor_data[plot_key] = od_value
-                    else:
-                        sensor_data[plot_key] = float('nan')
+                    sensor_data[plot_key] = _clean_od_reading(od_results.get(ch_name, None))
             elif od_channel_names:
                 # OD channels requested but not initialized - set to NaN
                 for ch_name in od_channel_names:
@@ -215,8 +223,8 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             # Extract eyespy readings from od_results (averaged voltages with LED on)
             if eyespy_initialized and hasattr(bioreactor, 'eyespy_boards'):
                 for board_name in bioreactor.eyespy_boards.keys():
-                    eyespy_voltage = od_results.get(board_name, None)
-                    if eyespy_voltage is not None:
+                    eyespy_voltage = _clean_od_reading(od_results.get(board_name, None))
+                    if not np.isnan(eyespy_voltage):
                         # Store the averaged voltage from measure_od (LED was on during measurement)
                         sensor_data[f"eyespy_{board_name}_voltage"] = eyespy_voltage
                         # Also get raw value for completeness (single reading after LED is off)
@@ -242,8 +250,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         if bioreactor.is_component_initialized('optical_density') and od_channel_names:
             for ch_name in od_channel_names:
                 plot_key = f"od_{ch_name.lower()}"
-                od_value = read_voltage(bioreactor, ch_name)
-                sensor_data[plot_key] = od_value if od_value is not None else float('nan')
+                sensor_data[plot_key] = _clean_od_reading(read_voltage(bioreactor, ch_name))
         else:
             # No OD available, set all to NaN
             for ch_name in od_channel_names:
@@ -260,11 +267,8 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     # Store raw value
                     sensor_data[f"eyespy_{board_name}_raw"] = raw_value
                     # Also get voltage (single reading, LED off)
-                    voltage = read_eyespy_voltage(bioreactor, board_name)
-                    if voltage is not None:
-                        sensor_data[f"eyespy_{board_name}_voltage"] = voltage
-                    else:
-                        sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
+                    voltage = _clean_od_reading(read_eyespy_voltage(bioreactor, board_name))
+                    sensor_data[f"eyespy_{board_name}_voltage"] = voltage
                 else:
                     sensor_data[f"eyespy_{board_name}_raw"] = float('nan')
                     sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
@@ -1515,5 +1519,300 @@ def turbidostat_ekf_mode(
     bioreactor.logger.info(
         f"Turbidostat: meas={z_k:.4f} est={od_est:.4f} r={r_est:.6f} "
         f"Td={dt_str} sp={od_setpoint:.4f}{pump_str}"
+    )
+
+
+def _resolve_converse_pump(pump_name: str) -> Optional[str]:
+    """Return the inflow/outflow counterpart of a pump name, or None if it
+    cannot be inferred. Mirrors the inference used by balanced_flow and
+    independent_flow."""
+    if pump_name == 'inflow':
+        return 'outflow'
+    if pump_name == 'outflow':
+        return 'inflow'
+    if pump_name.endswith('_in') or pump_name.endswith('_inflow'):
+        base = pump_name.rsplit('_', 1)[0] if '_' in pump_name else pump_name
+        return f"{base}_out" if not base.endswith('out') else f"{base}_outflow"
+    if pump_name.endswith('_out') or pump_name.endswith('_outflow'):
+        base = pump_name.rsplit('_', 1)[0] if '_' in pump_name else pump_name
+        return f"{base}_in" if not base.endswith('in') else f"{base}_inflow"
+    return None
+
+
+def _run_duty_pulse(
+    bioreactor,
+    pump_name: str,
+    converse_name: Optional[str],
+    flow_rate_ml_s: float,
+    on_in: float,
+    on_out: float,
+) -> None:
+    """Run a single chemostat duty pulse, blocking for ``on_out`` seconds.
+
+    Inflow and outflow start together at ``flow_rate_ml_s``. Inflow stops after
+    ``on_in`` seconds; outflow keeps running until ``on_out`` seconds
+    (``on_out >= on_in``) so that the vessel is pulled back to the outflow tube
+    level rather than overfilling — the same overfill margin used by the EKF
+    turbidostat, adapted to a sub-second simultaneous pulse.
+
+    Sets ``bioreactor.pumping_active`` for the duration so the EKF growth-rate
+    estimate can distrust OD readings taken mid-dilution.
+    """
+    from .io import change_pump
+
+    bioreactor.pumping_active = True
+    try:
+        change_pump(bioreactor, pump_name, flow_rate_ml_s)
+        if converse_name is not None:
+            change_pump(bioreactor, converse_name, flow_rate_ml_s)
+
+        time.sleep(on_in)
+        change_pump(bioreactor, pump_name, 0.0)
+
+        if converse_name is not None:
+            extra = on_out - on_in
+            if extra > 0:
+                time.sleep(extra)
+            change_pump(bioreactor, converse_name, 0.0)
+
+        # Accumulate run times for CSV bookkeeping (parity with other modes)
+        run_times = getattr(bioreactor, 'pump_run_times', None)
+        if run_times is not None:
+            if pump_name in run_times:
+                run_times[pump_name] += on_in
+            if converse_name is not None and converse_name in run_times:
+                run_times[converse_name] += on_out
+    except Exception as e:
+        bioreactor.logger.error(f"Chemostat duty pulse failed: {e}")
+        # Best-effort stop so a mid-pulse failure cannot leave a pump running
+        try:
+            change_pump(bioreactor, pump_name, 0.0)
+            if converse_name is not None:
+                change_pump(bioreactor, converse_name, 0.0)
+        except Exception:
+            pass
+    finally:
+        bioreactor.pumping_active = False
+
+
+def chemostat_duty_mode(
+    bioreactor,
+    duty: float,
+    pump_name: str = 'inflow',
+    flow_rate_ml_s: float = 2.0,
+    period: float = 1.0,
+    outflow_margin: float = 1.1,
+    temp_setpoint: Optional[float] = None,
+    kp: float = 12.0,
+    ki: float = 0.015,
+    kd: float = 0.0,
+    dt: Optional[float] = None,
+    sensor_index: int = 0,
+    max_duty_heat: Optional[float] = None,
+    max_duty_cool: Optional[float] = None,
+    elapsed: Optional[float] = None,
+) -> None:
+    """
+    Chemostat mode by pump duty cycling at the EKF dilution speed.
+
+    Each call performs exactly one duty cycle of length ``period`` (default
+    1.0 s): the pumps run at ``flow_rate_ml_s`` (the same fixed "EKF speed" used
+    by turbidostat_ekf_mode) for the fraction ``duty`` of the period, then sit
+    idle for the remainder. This gives a continuously-variable mean dilution of
+    ``duty * flow_rate_ml_s`` ml/s without changing the pump speed.
+
+    The function blocks for the whole ``period`` (pump-on time plus idle time),
+    so schedule it with frequency ``True`` (continuous) — successive calls then
+    run back-to-back, one period each. Any frequency <= ``period`` also works;
+    a frequency larger than ``period`` would insert extra idle time between
+    cycles and lower the effective dilution.
+
+    Inflow runs for ``duty * period`` seconds; outflow runs ``outflow_margin``
+    times longer (capped at ``period``) to pin the level to the outflow tube and
+    avoid overfilling, mirroring the EKF turbidostat's overfill margin.
+
+    Unlike turbidostat_ekf_mode this does not set ``_turbidostat_ekf_active``,
+    so the standalone EKF in measure_and_record_sensors still tracks OD and
+    growth rate while the chemostat runs.
+
+    Args:
+        bioreactor: Bioreactor instance
+        duty: Dilution duty fraction in [0, 1]. Out-of-range values are clamped.
+              0 holds the pumps off; 1 runs them continuously (balanced).
+        pump_name: Name of the inflow pump (default: 'inflow'). The outflow pump
+                   is inferred from it (e.g. 'inflow' -> 'outflow').
+        flow_rate_ml_s: Fixed pump speed while running, in ml/sec (default: 2.0,
+                        matching turbidostat_ekf_mode).
+        period: Duty-cycle length in seconds (default: 1.0).
+        outflow_margin: Factor by which outflow runs longer than inflow for
+                        overfill protection (default: 1.1). The outflow on-time
+                        is capped at ``period``.
+        temp_setpoint: Optional temperature setpoint (°C) for embedded PID. If
+                       None (default), temperature is left to a separate job.
+        kp: Proportional gain for temperature PID (default: 12.0)
+        ki: Integral gain for temperature PID (default: 0.015)
+        kd: Derivative gain for temperature PID (default: 0.0)
+        dt: Time step for temperature PID. If None, uses ``period``.
+        sensor_index: Temperature sensor index (default: 0)
+        max_duty_heat: Max duty for heating. None = use config.PELTIER_MAX_DUTY_HEAT
+        max_duty_cool: Max duty for cooling. None = use config.PELTIER_MAX_DUTY_COOL
+        elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
+
+    Example:
+        from functools import partial
+        # Dilute at 25% of the 2 ml/s EKF speed (mean 0.5 ml/s), continuous job
+        jobs = [(partial(chemostat_duty_mode, duty=0.25, flow_rate_ml_s=2.0), True, True)]
+    """
+    if period <= 0:
+        bioreactor.logger.warning(f"chemostat_duty_mode: period must be > 0, got {period}; skipping")
+        return
+
+    if duty < 0.0 or duty > 1.0:
+        bioreactor.logger.warning(f"chemostat_duty_mode: duty {duty:.3f} out of [0, 1]; clamping")
+        duty = max(0.0, min(1.0, duty))
+
+    on_in = duty * period
+    on_out = min(on_in * outflow_margin, period)
+
+    # --- Temperature control first so its cadence is independent of pump timing ---
+    if temp_setpoint is not None:
+        temperature_pid_controller(
+            bioreactor,
+            setpoint=temp_setpoint,
+            kp=kp,
+            ki=ki,
+            kd=kd,
+            dt=dt if dt is not None else period,
+            elapsed=elapsed,
+            sensor_index=sensor_index,
+            max_duty_heat=max_duty_heat,
+            max_duty_cool=max_duty_cool,
+        )
+
+    # --- Dilution pulse ---
+    pumped_seconds = 0.0
+    if on_in <= 0.0:
+        # duty == 0: pumps were stopped at the end of the previous pulse, so
+        # there is nothing to do here but wait out the period.
+        bioreactor.logger.debug("Chemostat duty: d=0.000, holding pumps off")
+    elif not bioreactor.is_component_initialized('pumps') or not hasattr(bioreactor, 'pumps'):
+        bioreactor.logger.warning("chemostat_duty_mode: pumps not initialized")
+    elif pump_name not in bioreactor.pumps:
+        bioreactor.logger.error(
+            f"chemostat_duty_mode: pump '{pump_name}' not found. "
+            f"Available: {list(bioreactor.pumps.keys())}"
+        )
+    else:
+        converse_name = _resolve_converse_pump(pump_name)
+        if converse_name is not None and converse_name not in bioreactor.pumps:
+            bioreactor.logger.warning(
+                f"chemostat_duty_mode: converse pump '{converse_name}' not found; "
+                f"running '{pump_name}' only"
+            )
+            converse_name = None
+
+        converse_str = f", {converse_name}={on_out:.3f}s" if converse_name else ""
+        bioreactor.logger.info(
+            f"Chemostat duty: d={duty:.3f} -> {pump_name}={on_in:.3f}s{converse_str} "
+            f"@ {flow_rate_ml_s:.3f} ml/s (period {period:.2f}s, "
+            f"mean {duty * flow_rate_ml_s:.3f} ml/s)"
+        )
+        _run_duty_pulse(bioreactor, pump_name, converse_name, flow_rate_ml_s, on_in, on_out)
+        pumped_seconds = on_out
+
+    # --- Idle for the rest of the period so one call == one full duty cycle ---
+    remainder = period - pumped_seconds
+    if remainder > 0:
+        time.sleep(remainder)
+
+
+def chemostat_schedule(
+    bioreactor,
+    schedule: list,
+    pump_name: str = 'inflow',
+    flow_rate_ml_s: float = 2.0,
+    period: float = 1.0,
+    outflow_margin: float = 1.1,
+    temp_setpoint: Optional[float] = None,
+    kp: float = 12.0,
+    ki: float = 0.015,
+    kd: float = 0.0,
+    dt: Optional[float] = None,
+    sensor_index: int = 0,
+    max_duty_heat: Optional[float] = None,
+    max_duty_cool: Optional[float] = None,
+    elapsed: Optional[float] = None,
+) -> None:
+    """
+    Run a chemostat dilution schedule that changes the duty over time.
+
+    The schedule is a list of ``(duration_seconds, duty)`` tuples executed in
+    order, where ``duty`` is the dilution fraction in [0, 1] (see
+    chemostat_duty_mode). The last duty is held indefinitely after all steps
+    complete; use ``None`` as the final duration to hold explicitly. This is the
+    dilution analogue of temperature_profile.
+
+    Like chemostat_duty_mode, each call consumes one ``period``, so schedule it
+    with frequency ``True`` (continuous).
+
+    Example:
+        from functools import partial
+        # 0.1 duty for 2 h, ramp to 0.3 for 2 h, then hold 0.2 indefinitely
+        partial(chemostat_schedule, schedule=[
+            (2 * 3600, 0.1),
+            (2 * 3600, 0.3),
+            (None,     0.2),
+        ], flow_rate_ml_s=2.0)
+
+    Args:
+        bioreactor: Bioreactor instance
+        schedule: List of (duration, duty) tuples. duration is in seconds; use
+                  None for the last duration to hold indefinitely. duty is in [0, 1].
+        pump_name: Name of the inflow pump (default: 'inflow')
+        flow_rate_ml_s: Fixed pump speed while running, in ml/sec (default: 2.0)
+        period: Duty-cycle length in seconds (default: 1.0)
+        outflow_margin: Outflow overfill margin factor (default: 1.1)
+        temp_setpoint: Optional temperature setpoint (°C) for embedded PID (default: None)
+        kp: Proportional gain for temperature PID (default: 12.0)
+        ki: Integral gain for temperature PID (default: 0.015)
+        kd: Derivative gain for temperature PID (default: 0.0)
+        dt: Time step for temperature PID. If None, uses ``period``.
+        sensor_index: Temperature sensor index (default: 0)
+        max_duty_heat: Max duty for heating. None = use config.PELTIER_MAX_DUTY_HEAT
+        max_duty_cool: Max duty for cooling. None = use config.PELTIER_MAX_DUTY_COOL
+        elapsed: Elapsed time in seconds (passed by bioreactor.run scheduler)
+    """
+    if elapsed is None or not schedule:
+        return
+
+    # Determine which schedule step we're in (mirrors temperature_profile)
+    t = 0.0
+    duty = schedule[-1][1]  # default to last step
+    for duration, d in schedule:
+        if duration is None:
+            duty = d
+            break
+        if elapsed < t + duration:
+            duty = d
+            break
+        t += duration
+        duty = d  # carry forward in case we're past all steps
+
+    chemostat_duty_mode(
+        bioreactor,
+        duty=duty,
+        pump_name=pump_name,
+        flow_rate_ml_s=flow_rate_ml_s,
+        period=period,
+        outflow_margin=outflow_margin,
+        temp_setpoint=temp_setpoint,
+        kp=kp,
+        ki=ki,
+        kd=kd,
+        dt=dt,
+        sensor_index=sensor_index,
+        max_duty_heat=max_duty_heat,
+        max_duty_cool=max_duty_cool,
+        elapsed=elapsed,
     )
 

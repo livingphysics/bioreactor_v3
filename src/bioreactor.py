@@ -259,7 +259,9 @@ class Bioreactor():
         _package_dir = os.path.dirname(os.path.abspath(__file__))
         base_filename = getattr(config, 'DATA_OUT_FILE', 'bioreactor_data.csv') if config else 'bioreactor_data.csv'
         use_timestamp = getattr(config, 'USE_TIMESTAMPED_FILENAME', True) if config else True
-        results_package = getattr(config, 'RESULTS_PACKAGE', False) if config else False
+        data_logging = getattr(config, 'DATA_LOGGING', True) if config else True
+        # DATA_LOGGING=False disables all file output (no CSV, no results package).
+        results_package = (getattr(config, 'RESULTS_PACKAGE', False) if config else False) and data_logging
         results_base = getattr(config, 'RESULTS_BASE_DIR', 'bioreactor_data') if config else 'bioreactor_data'
         # Resolve results base relative to bioreactor.py location (never cwd)
         results_base = os.path.normpath(os.path.join(_package_dir, results_base))
@@ -301,11 +303,18 @@ class Bioreactor():
             else:
                 out_file_path = os.path.join(data_dir, base_filename)
         
-        self.out_file = open(out_file_path, 'w', newline='')
-        self.out_file_path = out_file_path
-        self.writer = csv.DictWriter(self.out_file, fieldnames=fieldnames)
-        self.writer.writeheader()
-        self.logger.info(f"Data logging to: {out_file_path}")
+        if data_logging:
+            self.out_file = open(out_file_path, 'w', newline='')
+            self.out_file_path = out_file_path
+            self.writer = csv.DictWriter(self.out_file, fieldnames=fieldnames)
+            self.writer.writeheader()
+            self.logger.info(f"Data logging to: {out_file_path}")
+        else:
+            # No data file: downstream writers guard on `self.writer`/`self.out_file`.
+            self.out_file = None
+            self.out_file_path = None
+            self.writer = None
+            self.logger.info("Data logging disabled (DATA_LOGGING=False); no data file created.")
 
         self.logger.info("Bioreactor initialization complete.")
         

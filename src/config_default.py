@@ -17,6 +17,7 @@ class Config:
     CLEAR_LOG_ON_START: bool = True  # If True, clears/truncates the log file on startup
     DATA_OUT_FILE: str = 'bioreactor_data.csv'
     USE_TIMESTAMPED_FILENAME: bool = True  # If True, adds timestamp prefix (e.g., "20250113_153000_bioreactor_data.csv"). If False, uses base filename only.
+    DATA_LOGGING: bool = True  # If False, the Bioreactor writes NO data file (CSV) or results package. For hardware utilities (e.g. pump cleaning) that only drive actuators.
     
     # Results package: put each run in a dated directory with output + copy of script
     RESULTS_PACKAGE: bool = True  # If True, create a dated dir and write output + script copy there

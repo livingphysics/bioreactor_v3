@@ -1186,9 +1186,16 @@ def change_pump(bioreactor, pump_name: str, ml_per_sec: float, direction: Option
     pump_cfg = bioreactor.pump_configs.get(pump_name, {})
     steps_per_ml = pump_cfg.get('steps_per_ml', 10000000.0)  # Default fallback if not specified
     
-    # Simple conversion: ml/sec to steps/sec (without calibration)
-    # In bioreactor_v2, this would be: steps_per_sec = 8*int((ml_per_sec - intercept) / gradient)
-    # For now, use a simple linear conversion without intercept
+    # Convert ml/sec to a Tic target-velocity value.
+    # NOTE on units: the Tic's velocity is in microsteps per 10,000 SECONDS, not
+    # per second (https://www.pololu.com/docs/0J71/5.1) -- so the value below runs
+    # the motor at steps_per_sec / 10,000 microsteps/s. The 10,000 factor is folded
+    # into the calibrated steps_per_ml (steps_per_ml == 10,000 x microsteps_per_ml),
+    # which keeps this self-consistent; don't "fix" it by multiplying by 10,000
+    # without also redividing steps_per_ml, or every calibration breaks and the Tic
+    # will clamp at Max speed. The variable name is historical (it is really a Tic
+    # velocity value, not steps/s). hardware_testing/pump_calibration.py calibrates
+    # steps_per_ml in exactly this convention.
     steps_per_sec = 8 * int(ml_per_sec * steps_per_ml / 8)  # Match bioreactor_v2 pattern: 8*int(...)
     
     # Set velocity sign: positive if direction is 'forward', negative if 'reverse'
