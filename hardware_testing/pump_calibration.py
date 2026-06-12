@@ -258,9 +258,9 @@ def build_pump_config(name: str, entry: dict, command_steps_per_ml: float) -> Co
     pump_entry = copy.deepcopy(entry)
     pump_entry['steps_per_ml'] = command_steps_per_ml
     config.PUMPS = {name: pump_entry}
-    # Keep this a throwaway calibration run: don't spawn a dated results package.
-    config.RESULTS_PACKAGE = False
-    config.DATA_OUT_FILE = 'pump_calibration_scratch.csv'
+    # Calibration only drives the pumps and writes no files: DATA_LOGGING=False
+    # suppresses both the data CSV and the results package.
+    config.DATA_LOGGING = False
     return config
 
 
