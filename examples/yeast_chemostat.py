@@ -50,14 +50,16 @@ config.USE_TIMESTAMPED_FILENAME: bool = False
 BATCH_SECONDS = 24 * 3600      # 24 h batch (no-dilution) phase
 DILUTION_FLOW_ML_S = 0.00174   # pump speed while diluting (ml/s)
 DILUTION_DUTY = 0.5            # on-fraction of each duty period
+DILUTION_PERIOD_S = 60.0      # duty-cycle length (s): pump on duty*period, idle the rest
 # Mean dilution once running: 0.5 * 0.00174 = 0.00087 ml/s  (~3.13 ml/h).
 # (If you instead want the *mean* dilution to be 0.00174 ml/s, set
 #  DILUTION_FLOW_ML_S = 0.00348 with DILUTION_DUTY = 0.5.)
 #
-# Note on very low flow rates: each "on" pulse lasts duty * period seconds (the
-# default period is 1.0 s, so 0.5 s here). At slow speeds that is only a handful
-# of motor microsteps per pulse; if you want larger, smoother pulses, pass a
-# bigger `period=` (e.g. period=10.0) to chemostat_schedule below.
+# DILUTION_PERIOD_S sets the chunk size of the dilution, not the mean rate. At
+# this low flow rate a longer period makes each "on" pulse move more motor
+# microsteps (60 s @ duty 0.5 -> a 30 s pulse) instead of the sub-step twitch the
+# 1.0 s default would give. Lower it for finer-grained dilution if your pumps are
+# calibrated to many steps/ml.
 
 # Initialize bioreactor
 with Bioreactor(config) as reactor:
@@ -127,7 +129,8 @@ with Bioreactor(config) as reactor:
                      (12*3600,  0.25),  # then 0.5 duty 
                      (None,          DILUTION_DUTY),  # then 0.5 duty forever
                  ],
-                 flow_rate_ml_s=DILUTION_FLOW_ML_S),
+                 flow_rate_ml_s=DILUTION_FLOW_ML_S,
+                 period=DILUTION_PERIOD_S),
          True, True),
     ]
 
