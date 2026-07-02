@@ -83,24 +83,20 @@ with Bioreactor(config) as reactor:
     # duration: how long to run in seconds, or True for indefinite
     jobs = [
         # Measure and record sensors every 20 seconds with IR led at 15%
-        (partial(measure_and_record_sensors, led_power=15.0), 10, True),  # Read sensors and record to CSV every 5 seconds
+        (partial(measure_and_record_sensors, led_power=15.0), 20, True),  # Read sensors and record to CSV every 5 seconds
         
-        # Temperature profile: 30°C for 3 hours, then 25°C indefinitely
+        # Temperature PID controller - maintains temperature at 37.0°C
+        # Run PID controller every 5 seconds
         (partial(temperature_pid_controller, setpoint=30.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
-        # (partial(temperature_profile, profile=[
-            # (3 * 3600, 25.0),
-            # (3 * 3600, 27.5),
-            # (None, 30.0),
-        # ]), 20, True),
-
-        # EKF turbidostat (temp control handled by temperature_profile above)
-        (partial(turbidostat_ekf_mode,
-            od_setpoint=0.1,
-            od_channel='OD_135_V',
-            R=0.003,
-            Q_growth_rate=5e-12,
-            pump_duration=60.0,
-        ), 10, True)
+        
+        # Ring light cycle - turns on at (50,50,50) for 60s, then off for 60s, repeating
+        # Check every 1 second to update state
+        # (partial(ring_light_cycle, color=(50, 50, 50), on_time=60.0, off_time=60.0), 1, True),
+        
+        # Balanced flow - maintains balanced inflow/outflow for chemostat mode
+        # Sets both inflow and outflow pumps to the same flow rate (2 ml/s)
+        # Run every 10 seconds to maintain flow rate
+        # (partial(balanced_flow, pump_name='inflow', ml_per_sec=2.0), 10, True),
 
     ]
     
