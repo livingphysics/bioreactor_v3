@@ -38,18 +38,25 @@ from src.io import (
     read_ambient_temp, read_peltier_current, get_peltier_state,
 )
 from src.utils import temperature_pid_controller, measure_and_record_sensors
-from peltier_schedule import load_schedule
+from peltier_schedule import (
+    load_schedule, generate_schedule, infer_scope, tighten_cap,
+    DEFAULT_MAX_HEAT, DEFAULT_MAX_COOL, DEFAULT_STEP,
+)
 
 
 SAMPLE_PERIOD_MS = 1000          # poll temperature at 1 Hz
 PLOT_WINDOW_SECONDS = 30 * 60    # keep the most recent 30 minutes
 
-# Bath-temperature safety window for an unattended schedule run (peltier zeroed if exceeded)
+# Bath-temperature limits for a schedule run. On an excursion the run does NOT abort:
+# it caps the offending direction, rests at 0 duty, and resamples the remainder with
+# the tightened bounds (matching run_peltier_schedule.py --on-limit adapt).
 SCHEDULE_TEMP_MAX_C = 60.0
 SCHEDULE_TEMP_MIN_C = 2.0
-# Abort a schedule if the bath temperature reads NaN (sensor dropout, or a reading
-# outside 0-100 C) for this many consecutive samples (~1 s each) — otherwise a
-# sustained sensor fault would silently blind the temperature cutoff.
+SCHEDULE_REST_SECONDS = 300.0    # 5-minute recovery rest at 0 duty after a cap
+SCHEDULE_MIN_HOLD_S = 60.0       # end the run if less than this remains after a rest
+# A sustained NaN bath temperature (sensor dropout, or a reading outside 0-100 C)
+# for this many consecutive samples (~1 s each) DOES abort — it would otherwise
+# silently blind the temperature supervision.
 SCHEDULE_MAX_NAN_SAMPLES = 15
 
 
@@ -113,6 +120,15 @@ class HeaterGUI:
         self._schedule_idx = -1
         self._schedule_seg_end = None
         self._schedule_nan_count = 0
+        # Adaptive-bounds state: on a temp excursion the offending direction's cap
+        # is tightened and the remaining run is resampled (rather than aborting).
+        self._schedule_scope = 'both'
+        self._schedule_total_s = 0.0
+        self._schedule_max_heat = DEFAULT_MAX_HEAT
+        self._schedule_max_cool = DEFAULT_MAX_COOL
+        self._schedule_rebounds = 0
+        self._schedule_resting = False
+        self._schedule_rest_until = None
 
         self._make_widgets()
         self._apply_setting()  # push initial state (0% / heat) to the driver
@@ -406,10 +422,17 @@ class HeaterGUI:
         self._schedule_idx = -1
         self._schedule_seg_end = None
         self._schedule_nan_count = 0
+        self._schedule_scope = infer_scope(steps)
+        self._schedule_total_s = sum(s['hold_s'] for s in steps)
+        self._schedule_max_heat = DEFAULT_MAX_HEAT
+        self._schedule_max_cool = DEFAULT_MAX_COOL
+        self._schedule_rebounds = 0
+        self._schedule_resting = False
+        self._schedule_rest_until = None
         self._schedule_t0 = time.time()
         self._schedule_active = True
 
-        total = sum(s['hold_s'] for s in steps)
+        total = self._schedule_total_s
         self.sched_btn.config(text="Stop Schedule", bg='#c00')
         self._set_manual_controls_state('disabled')
         self.sched_status_var.set(
@@ -433,8 +456,19 @@ class HeaterGUI:
         return path
 
     def _advance_schedule(self):
-        """Move to the next schedule step when the current hold expires."""
+        """Move to the next schedule step when the current hold expires.
+
+        Also drives the adaptive recovery rest: while resting, hold at 0 duty until
+        the rest timer expires, then resample the remaining run with the tightened
+        bounds.
+        """
         now = time.time()
+        if self._schedule_resting:
+            if now < self._schedule_rest_until:
+                return  # still resting at 0 duty
+            self._schedule_resting = False
+            self._resample_remaining(now)
+            return
         if self._schedule_seg_end is not None and now < self._schedule_seg_end:
             return  # still holding the current step
 
@@ -464,10 +498,74 @@ class HeaterGUI:
             f"Step {self._schedule_idx + 1}/{len(self._schedule_steps)}: {lbl}, "
             f"{hold:.0f}s  ({remaining} left, {elapsed_min:.0f} min elapsed)")
 
+    def _rebound_schedule(self, offending):
+        """Temperature-limit response: cap the offending direction, then rest at 0.
+
+        `offending` is 'hot' (temp above max) or 'cold' (temp below min). After the
+        rest timer expires, _advance_schedule resamples the remainder with the new
+        bounds. Mirrors run_peltier_schedule.py --on-limit adapt (no abort).
+        """
+        now = time.time()
+        idx = self._schedule_idx
+        if 0 <= idx < len(self._schedule_steps):
+            duty = self._schedule_steps[idx]['duty']
+            direction = self._schedule_steps[idx]['direction']
+        else:
+            duty, direction = 0.0, 'heat'
+        self._schedule_rebounds += 1
+        if offending == 'hot':
+            prev = self._schedule_max_heat
+            self._schedule_max_heat = tighten_cap(prev, duty, direction == 'heat', DEFAULT_STEP)
+            capped = f"HEAT {prev:.0f}→{self._schedule_max_heat:.0f}%"
+        else:
+            prev = self._schedule_max_cool
+            self._schedule_max_cool = tighten_cap(prev, duty, direction == 'cool', DEFAULT_STEP)
+            capped = f"COOL {prev:.0f}→{self._schedule_max_cool:.0f}%"
+
+        stop_peltier(self.bio)
+        self.duty_var.set(0)
+        self.duty_label_var.set("0 %")
+        self._schedule_resting = True
+        self._schedule_rest_until = now + SCHEDULE_REST_SECONDS
+        self._schedule_seg_end = None
+        self._schedule_nan_count = 0
+        self.sched_status_var.set(
+            f"Temp limit — capped {capped}; resting 0% for "
+            f"{SCHEDULE_REST_SECONDS/60:.0f} min, then resampling")
+        self.bio.logger.info(
+            f"Schedule rebound #{self._schedule_rebounds}: capped {capped}; "
+            f"resting {SCHEDULE_REST_SECONDS:.0f}s at 0 duty")
+
+    def _resample_remaining(self, now):
+        """After a recovery rest, regenerate the remaining run with tightened bounds."""
+        remaining_s = self._schedule_total_s - (now - self._schedule_t0)
+        if remaining_s < SCHEDULE_MIN_HOLD_S:
+            self._finish_schedule(completed=True)
+            return
+        try:
+            steps, _ = generate_schedule(
+                scope=self._schedule_scope, total_s=remaining_s,
+                max_heat=self._schedule_max_heat, max_cool=self._schedule_max_cool,
+                seed=None)
+        except ValueError:
+            self._finish_schedule(completed=True)
+            self.sched_status_var.set("Adaptive bounds left nothing safe to sample; schedule ended.")
+            return
+        self._schedule_steps = steps
+        self._schedule_idx = -1
+        self._schedule_seg_end = None
+        self.sched_status_var.set(
+            f"Resampled {len(steps)} steps for remaining {remaining_s/60:.0f} min "
+            f"(heat≤{self._schedule_max_heat:.0f}%, cool≤{self._schedule_max_cool:.0f}%)")
+        self.bio.logger.info(
+            f"Resampled remaining {remaining_s:.0f}s into {len(steps)} steps "
+            f"(heat≤{self._schedule_max_heat}, cool≤{self._schedule_max_cool})")
+
     def _finish_schedule(self, completed):
         """Stop the schedule, close the data file, and re-enable manual controls."""
         was_active = self._schedule_active
         self._schedule_active = False
+        self._schedule_resting = False
         self._schedule_steps = None
         self._schedule_seg_end = None
         try:
@@ -544,7 +642,9 @@ class HeaterGUI:
                     forward = state[1] if state else True
                     current = c if forward else -c
 
-        # Safety supervision while a schedule is running
+        # Safety supervision while a schedule is running. A sustained NaN bath temp
+        # always aborts; a temperature-limit excursion instead triggers an adaptive
+        # rebound (cap the offending direction + rest + resample), never an abort.
         if self._schedule_active:
             if temp != temp:  # NaN: sensor dropout, or a reading outside 0-100 C
                 self._schedule_nan_count += 1
@@ -553,9 +653,14 @@ class HeaterGUI:
                         f"no valid bath temperature for {self._schedule_nan_count} samples")
             else:
                 self._schedule_nan_count = 0
-                if temp > SCHEDULE_TEMP_MAX_C or temp < SCHEDULE_TEMP_MIN_C:
-                    self._abort_schedule(
-                        f"bath {temp:.1f} °C outside [{SCHEDULE_TEMP_MIN_C:.0f}, {SCHEDULE_TEMP_MAX_C:.0f}] °C")
+                # Only evaluate limits while actively holding a driving step (seg_end
+                # set) — not during the recovery rest, nor in the brief gap right
+                # after a resample before the next step is applied.
+                if not self._schedule_resting and self._schedule_seg_end is not None:
+                    if temp > SCHEDULE_TEMP_MAX_C:
+                        self._rebound_schedule('hot')
+                    elif temp < SCHEDULE_TEMP_MIN_C:
+                        self._rebound_schedule('cold')
 
         t = time.time() - self._t0
         self._times.append(t)

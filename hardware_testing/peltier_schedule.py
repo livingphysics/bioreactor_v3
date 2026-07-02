@@ -77,6 +77,30 @@ def signed_to_command(v):
     return 0, 'heat'
 
 
+def infer_scope(steps):
+    """Infer 'heat'/'cool'/'both' from the directions present in a step list."""
+    dirs = {s['direction'] for s in steps if s['duty'] > 0}
+    if dirs == {'heat'}:
+        return 'heat'
+    if dirs == {'cool'}:
+        return 'cool'
+    return 'both'
+
+
+def tighten_cap(prev_cap, offending_duty, is_offending_dir, step=DEFAULT_STEP):
+    """Return a strictly-lower duty cap for a direction after a temperature excursion.
+
+    Honours "set the current duty cycle as the maximum" when the excursion happened
+    while driving that direction, but always tightens by at least one ``step`` so a
+    repeat excursion at the same level can't stall progress. Never returns below 0.
+    """
+    if is_offending_dir and offending_duty > 0:
+        cap = offending_duty if offending_duty < prev_cap else prev_cap - step
+    else:
+        cap = prev_cap - step
+    return max(0, cap)
+
+
 def generate_schedule(scope='both', total_s=3 * 3600, min_hold_s=60.0, max_hold_s=300.0,
                       max_heat=DEFAULT_MAX_HEAT, max_cool=DEFAULT_MAX_COOL,
                       min_cool=DEFAULT_MIN_COOL, step=DEFAULT_STEP, seed=None,

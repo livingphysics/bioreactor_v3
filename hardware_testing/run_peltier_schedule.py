@@ -59,7 +59,7 @@ from src.io import set_peltier_power, stop_peltier
 from src.utils import measure_and_record_sensors
 from peltier_schedule import (
     generate_schedule, load_schedule, write_schedule, summarize,
-    DEFAULT_MAX_HEAT, DEFAULT_MAX_COOL, DEFAULT_STEP,
+    infer_scope, tighten_cap, DEFAULT_MAX_HEAT, DEFAULT_MAX_COOL, DEFAULT_STEP,
 )
 
 
@@ -69,30 +69,6 @@ def _apply_step(bio, duty, direction):
         stop_peltier(bio)
     else:
         set_peltier_power(bio, duty, forward=direction)
-
-
-def _infer_scope(steps):
-    """Infer 'heat'/'cool'/'both' from the directions present in a step list."""
-    dirs = {s['direction'] for s in steps if s['duty'] > 0}
-    if dirs == {'heat'}:
-        return 'heat'
-    if dirs == {'cool'}:
-        return 'cool'
-    return 'both'
-
-
-def _tighten_cap(prev_cap, offending_duty, is_offending_dir, step):
-    """Return a strictly-lower duty cap for the offending direction.
-
-    Honours "set the current duty cycle as the maximum" when the excursion
-    happened while driving that direction, but always tightens by at least one
-    step (so re-triggering at the same level can't stall progress).
-    """
-    if is_offending_dir and offending_duty > 0:
-        cap = offending_duty if offending_duty < prev_cap else prev_cap - step
-    else:
-        cap = prev_cap - step
-    return max(0, cap)
 
 
 def _sample_hold(bio, hold_s, sample_period_s, t0, have_temp, temp_min, temp_max,
@@ -181,12 +157,12 @@ def run(steps, bio, sample_period_s, temp_min, temp_max, *, on_limit='adapt',
             # --- adaptive response: tighten the offending cap, rest, resample ---
             rebounds += 1
             if status == 'hot':
-                prev, cur_max_heat = cur_max_heat, _tighten_cap(
+                prev, cur_max_heat = cur_max_heat, tighten_cap(
                     cur_max_heat, duty, direction == 'heat', DEFAULT_STEP)
                 print(f"\nSAFETY: bath {temp:.1f} °C > {temp_max:.0f} °C at {label}. "
                       f"Capping HEAT {prev:.0f}%→{cur_max_heat:.0f}%; resting 0 duty for {rest_s/60:.0f} min.")
             else:
-                prev, cur_max_cool = cur_max_cool, _tighten_cap(
+                prev, cur_max_cool = cur_max_cool, tighten_cap(
                     cur_max_cool, duty, direction == 'cool', DEFAULT_STEP)
                 print(f"\nSAFETY: bath {temp:.1f} °C < {temp_min:.0f} °C at {label}. "
                       f"Capping COOL {prev:.0f}%→{cur_max_cool:.0f}%; resting 0 duty for {rest_s/60:.0f} min.")
@@ -306,7 +282,7 @@ def main():
     except Exception as e:
         print(f"(could not save schedule copy: {e})")
 
-    effective_scope = args.scope if not args.schedule else _infer_scope(steps)
+    effective_scope = args.scope if not args.schedule else infer_scope(steps)
 
     rc = 0
     try:
