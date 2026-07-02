@@ -53,6 +53,11 @@ class HeaterGUI:
         override['peltier_current'] = True   # INA228 peltier supply current (optional/best-effort)
         Config.INIT_COMPONENTS = override
 
+        # This is a live control/plot utility, not a data run: it never calls
+        # measure_and_record_sensors, so disable data logging to avoid leaving an
+        # empty header-only CSV behind on every launch.
+        Config.DATA_LOGGING = False
+
         try:
             self.bio = Bioreactor(Config)
         except Exception as e:

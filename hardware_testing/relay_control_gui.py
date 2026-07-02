@@ -27,6 +27,9 @@ class RelayControlGUI:
         override['relays'] = True
         Config.INIT_COMPONENTS = override
 
+        # Live control utility: don't leave an empty header-only CSV behind
+        Config.DATA_LOGGING = False
+
         try:
             self.bio = Bioreactor(Config)
         except Exception as e:

@@ -65,6 +65,10 @@ class HeaterSweepGUI:
         override['peltier_driver'] = True
         Config.INIT_COMPONENTS = override
 
+        # The sweep writes its own CSV via a save dialog (see _save/export below),
+        # so disable the auto data file to avoid an empty header-only CSV per launch.
+        Config.DATA_LOGGING = False
+
         try:
             self.bio = Bioreactor(Config)
         except Exception as e:
