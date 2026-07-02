@@ -37,6 +37,8 @@ class Config:
         'eyespy_adc': False,  # Eyespy ADC component (ADS1114, based on pioreactor)
         'co2_sensor': False,  # Senseair K33 CO2 sensor (I2C)
         'o2_sensor': False,  # Atlas Scientific O2 sensor (I2C)
+        'ambient_temp': False,  # PCT2075 ambient temperature sensor (I2C)
+        'peltier_current': False,  # INA228 current monitor on the peltier supply (I2C)
         'pumps': False,  # Pump control via ticUSB
         'relays': False,  # GPIO relay control
     }
@@ -44,7 +46,8 @@ class Config:
     # Sensor Labels for CSV output
     # Labels are auto-populated in bioreactor.py based on INIT_COMPONENTS.
     # Only add custom labels here if you want to override the defaults.
-    # Possible keys: 'temperature', 'co2', 'o2'; 'od_<channel>' (e.g. od_135, od_ref, od_90);
+    # Possible keys: 'temperature', 'co2', 'o2', 'ambient_temp', 'peltier_current';
+    # 'od_<channel>' (e.g. od_135, od_ref, od_90);
     # 'eyespy_<board>_raw', 'eyespy_<board>_voltage' (e.g. eyespy1_raw, eyespy1_voltage);
     # 'peltier_duty', 'peltier_forward'; 'ring_light_R', 'ring_light_G', 'ring_light_B'.
     SENSOR_LABELS: dict = {}
@@ -116,7 +119,22 @@ class Config:
     # Enable/disable via INIT_COMPONENTS['o2_sensor']
     O2_SENSOR_I2C_ADDRESS: Optional[int] = None  # I2C address for O2 sensor (None = use default: 0x6C)
     O2_SENSOR_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
-    
+
+    # Ambient Temperature Sensor Configuration (NXP PCT2075, I2C)
+    # Enable/disable via INIT_COMPONENTS['ambient_temp']. Reads in °C.
+    # The PCT2075's standard address range is 0x48-0x4F; this rig reports it at 0x37.
+    AMBIENT_TEMP_I2C_ADDRESS: int = 0x37  # I2C address of the PCT2075
+    AMBIENT_TEMP_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
+
+    # Peltier Current Sensor Configuration (TI INA228 current/power monitor, I2C)
+    # Enable/disable via INIT_COMPONENTS['peltier_current']. Reads current in Amps.
+    # Current is derived from the shunt voltage: I = V_shunt / INA228_SHUNT_OHMS.
+    PELTIER_CURRENT_I2C_ADDRESS: int = 0x40  # I2C address of the INA228 (default 0x40)
+    PELTIER_CURRENT_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
+    INA228_SHUNT_OHMS: float = 0.015  # Shunt resistor value in ohms. CALIBRATE to your board's shunt
+                                      # (0.015 Ω is the Adafruit INA228 breakout default) — the absolute
+                                      # current reading scales directly with this value.
+
     # Relay Configuration (GPIO, active-low by default)
     # Maps relay names to BCM GPIO pin numbers
     RELAYS: dict[str, int] = {

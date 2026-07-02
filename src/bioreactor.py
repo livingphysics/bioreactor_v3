@@ -185,7 +185,25 @@ class Bioreactor():
             else:
                 # Remove O2 label if sensor is disabled
                 config.SENSOR_LABELS.pop('o2', None)
-            
+
+            # Auto-populate ambient temperature label if ambient_temp is enabled
+            # Also remove it if disabled (to clean up any leftover entries)
+            ambient_temp_enabled = init_components.get('ambient_temp', False)
+            if ambient_temp_enabled:
+                if 'ambient_temp' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['ambient_temp'] = 'ambient_temp_C'
+            else:
+                config.SENSOR_LABELS.pop('ambient_temp', None)
+
+            # Auto-populate peltier current label if peltier_current is enabled
+            # Also remove it if disabled (to clean up any leftover entries)
+            peltier_current_enabled = init_components.get('peltier_current', False)
+            if peltier_current_enabled:
+                if 'peltier_current' not in config.SENSOR_LABELS:
+                    config.SENSOR_LABELS['peltier_current'] = 'peltier_current_A'
+            else:
+                config.SENSOR_LABELS.pop('peltier_current', None)
+
             # Auto-populate peltier state labels if peltier_driver is enabled
             peltier_enabled = init_components.get('peltier_driver', False)
             if peltier_enabled:
@@ -221,6 +239,10 @@ class Bioreactor():
                     component_name = 'co2_sensor'
                 elif key == 'o2':
                     component_name = 'o2_sensor'
+                elif key == 'ambient_temp':
+                    component_name = 'ambient_temp'
+                elif key == 'peltier_current':
+                    component_name = 'peltier_current'
                 elif key.startswith('od_'):
                     component_name = 'optical_density'
                 elif key.startswith('eyespy_'):

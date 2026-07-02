@@ -1144,6 +1144,109 @@ def read_co2(bioreactor) -> Optional[int]:
         return None
 
 
+def read_ambient_temp(bioreactor) -> Optional[float]:
+    """
+    Read ambient temperature from the PCT2075 sensor.
+
+    Args:
+        bioreactor: Bioreactor instance
+
+    Returns:
+        float: Ambient temperature in Celsius, or None if error/not initialized
+    """
+    if not bioreactor.is_component_initialized('ambient_temp'):
+        bioreactor.logger.warning("Ambient temp sensor not initialized")
+        return None
+
+    sensor = getattr(bioreactor, 'ambient_temp_sensor', None)
+    if sensor is None:
+        bioreactor.logger.warning("Ambient temp sensor not available")
+        return None
+
+    try:
+        return float(sensor.temperature)
+    except Exception as e:
+        bioreactor.logger.error(f"Error reading ambient temperature (PCT2075): {e}")
+        return None
+
+
+def _read_ina228_current(i2c_addr: int, bus_num: int, shunt_ohms: float, vshunt_lsb: float, logger) -> Optional[float]:
+    """Low-level read of current from a TI INA228 over I2C.
+
+    Reads the 24-bit VSHUNT register (0x04), whose value lives in bits [23:4] as
+    a signed 20-bit count, converts it to a shunt voltage using ``vshunt_lsb``
+    (312.5 nV/count for ADCRANGE=0, set in init_peltier_current), and returns the
+    current I = V_shunt / shunt_ohms in Amps.
+    """
+    try:
+        from smbus2 import SMBus, i2c_msg  # type: ignore
+    except ImportError as e:
+        logger.error(f"Peltier current sensor (INA228) requires smbus2: {e}")
+        return None
+
+    VSHUNT_REG = 0x04
+
+    try:
+        with SMBus(bus_num) as bus:
+            write_msg = i2c_msg.write(i2c_addr, [VSHUNT_REG])
+            read_msg = i2c_msg.read(i2c_addr, 3)
+            bus.i2c_rdwr(write_msg, read_msg)
+            data = list(read_msg)
+
+            if len(data) < 3:
+                logger.error(f"Incomplete INA228 VSHUNT response: got {len(data)} bytes, expected 3")
+                return None
+
+            # 24-bit register; the measurement is the top 20 bits, signed two's complement.
+            raw24 = (data[0] << 16) | (data[1] << 8) | data[2]
+            counts = raw24 >> 4
+            if counts & 0x80000:  # sign bit of the 20-bit value
+                counts -= 0x100000
+
+            v_shunt = counts * vshunt_lsb
+            return v_shunt / shunt_ohms
+
+    except OSError as e:
+        if getattr(e, "errno", None) == 121:
+            logger.error(
+                f"Remote I/O error (121): peltier current sensor (INA228) not responding at address 0x{i2c_addr:02X} on bus {bus_num}"
+            )
+        else:
+            logger.error(f"I2C communication error reading peltier current (INA228): {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to read from peltier current sensor (INA228): {e}")
+        return None
+
+
+def read_peltier_current(bioreactor) -> Optional[float]:
+    """
+    Read the peltier supply current from the INA228 sensor.
+
+    Args:
+        bioreactor: Bioreactor instance
+
+    Returns:
+        float: Current in Amps, or None if error/not initialized
+    """
+    if not bioreactor.is_component_initialized('peltier_current'):
+        bioreactor.logger.warning("Peltier current sensor not initialized")
+        return None
+
+    if not hasattr(bioreactor, 'peltier_current_config'):
+        bioreactor.logger.warning("Peltier current sensor configuration not available")
+        return None
+
+    config = bioreactor.peltier_current_config
+    return _read_ina228_current(
+        i2c_addr=config['i2c_address'],
+        bus_num=config['i2c_bus'],
+        shunt_ohms=config['shunt_ohms'],
+        vshunt_lsb=config['vshunt_lsb'],
+        logger=bioreactor.logger,
+    )
+
+
 def change_pump(bioreactor, pump_name: str, ml_per_sec: float, direction: Optional[str] = None) -> None:
     """
     Change pump flow rate in ml/sec.

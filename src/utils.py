@@ -168,7 +168,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         dict: Dictionary with all sensor readings
     """
     # Import IO functions
-    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc, read_co2, read_o2, get_peltier_state, get_ring_light_color
+    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc, read_co2, read_o2, read_ambient_temp, read_peltier_current, get_peltier_state, get_ring_light_color
     
     # Get elapsed time
     if elapsed is None:
@@ -293,7 +293,21 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             sensor_data['o2'] = float('nan')
     else:
         sensor_data['o2'] = float('nan')
-    
+
+    # Read ambient temperature sensor (PCT2075) if initialized
+    if bioreactor.is_component_initialized('ambient_temp'):
+        ambient_value = read_ambient_temp(bioreactor)
+        sensor_data['ambient_temp'] = ambient_value if ambient_value is not None else float('nan')
+    else:
+        sensor_data['ambient_temp'] = float('nan')
+
+    # Read peltier current sensor (INA228) if initialized
+    if bioreactor.is_component_initialized('peltier_current'):
+        current_value = read_peltier_current(bioreactor)
+        sensor_data['peltier_current'] = current_value if current_value is not None else float('nan')
+    else:
+        sensor_data['peltier_current'] = float('nan')
+
     # Current peltier duty and direction (from driver state, not a sensor)
     if bioreactor.is_component_initialized('peltier_driver'):
         peltier_state = get_peltier_state(bioreactor)
@@ -402,7 +416,23 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             else:
                 o2_label = 'O2_percent'
             csv_row[o2_label] = sensor_data['o2']
-        
+
+        # Add ambient temperature if sensor is initialized
+        if bioreactor.is_component_initialized('ambient_temp') and 'ambient_temp' in sensor_data:
+            if config and hasattr(config, 'SENSOR_LABELS'):
+                ambient_label = config.SENSOR_LABELS.get('ambient_temp', 'ambient_temp_C')
+            else:
+                ambient_label = 'ambient_temp_C'
+            csv_row[ambient_label] = sensor_data['ambient_temp']
+
+        # Add peltier current if sensor is initialized
+        if bioreactor.is_component_initialized('peltier_current') and 'peltier_current' in sensor_data:
+            if config and hasattr(config, 'SENSOR_LABELS'):
+                current_label = config.SENSOR_LABELS.get('peltier_current', 'peltier_current_A')
+            else:
+                current_label = 'peltier_current_A'
+            csv_row[current_label] = sensor_data['peltier_current']
+
         # Add peltier state if peltier_driver is initialized
         if bioreactor.is_component_initialized('peltier_driver'):
             if config and hasattr(config, 'SENSOR_LABELS'):
@@ -493,7 +523,19 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         o2_value = sensor_data['o2']
         if not np.isnan(o2_value):
             log_parts.append(f"O2: {o2_value:.2f}%")
-    
+
+    # Add ambient temperature reading to log
+    if bioreactor.is_component_initialized('ambient_temp') and 'ambient_temp' in sensor_data:
+        ambient_value = sensor_data['ambient_temp']
+        if not np.isnan(ambient_value):
+            log_parts.append(f"Ambient: {ambient_value:.2f}°C")
+
+    # Add peltier current reading to log
+    if bioreactor.is_component_initialized('peltier_current') and 'peltier_current' in sensor_data:
+        current_value = sensor_data['peltier_current']
+        if not np.isnan(current_value):
+            log_parts.append(f"Peltier I: {current_value:.3f}A")
+
     # Add peltier state to log
     if bioreactor.is_component_initialized('peltier_driver') and 'peltier_duty' in sensor_data:
         duty = sensor_data.get('peltier_duty', float('nan'))

@@ -237,7 +237,9 @@ class ODManualReadingGUI:
                     'optical_density': True,  # Enable OD sensor
                     'eyespy_adc': True,  # Enable eyespy ADC boards
                 }
-                
+                # Live control/plot utility: don't leave an empty header-only CSV behind
+                config.DATA_LOGGING = False
+
                 self.bioreactor = Bioreactor(config)
                 self.initialized = True
                 

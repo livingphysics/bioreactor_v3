@@ -787,6 +787,139 @@ def init_relays(bioreactor, config):
     return {'initialized': True, 'driver': driver}
 
 
+def init_ambient_temp(bioreactor, config):
+    """
+    Initialize the ambient temperature sensor (NXP PCT2075) over I2C.
+
+    Uses the adafruit_pct2075 driver on the shared busio I2C bus (the same bus
+    object created by init_i2c / used by the optical density sensor).
+
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object with AMBIENT_TEMP_* settings
+
+    Returns:
+        dict: {'initialized': bool}
+    """
+    try:
+        import adafruit_pct2075
+    except ImportError as import_error:
+        logger.error(f"Ambient temp sensor (PCT2075) dependencies missing: {import_error}. Install with: pip install adafruit-circuitpython-pct2075")
+        return {'initialized': False, 'error': str(import_error)}
+
+    # Ensure the shared I2C bus is initialized (mirrors init_optical_density)
+    if not hasattr(bioreactor, 'i2c') or bioreactor.i2c is None:
+        i2c_result = init_i2c(bioreactor, config)
+        if not i2c_result.get('initialized', False):
+            logger.error("I2C initialization required for ambient temp sensor")
+            return {'initialized': False, 'error': 'I2C initialization failed'}
+
+    address = getattr(config, 'AMBIENT_TEMP_I2C_ADDRESS', 0x37)
+
+    try:
+        sensor = adafruit_pct2075.PCT2075(bioreactor.i2c, address=address)
+        # Sanity read to confirm the device responds
+        temp = sensor.temperature
+        bioreactor.ambient_temp_sensor = sensor
+        logger.info(f"Ambient temp sensor (PCT2075) initialized at address {hex(address)} (read {temp:.2f} °C)")
+        return {'initialized': True, 'sensor': sensor}
+    except Exception as e:
+        logger.error(f"Ambient temp sensor (PCT2075) initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+
+# INA228 register map (see TI INA228 datasheet)
+_INA228_REG_CONFIG: Final[int] = 0x00
+_INA228_REG_ADC_CONFIG: Final[int] = 0x01
+_INA228_REG_MANUFACTURER_ID: Final[int] = 0x3E
+_INA228_REG_DEVICE_ID: Final[int] = 0x3F
+_INA228_MANUFACTURER_ID: Final[int] = 0x5449  # 'TI'
+# Shunt-voltage LSB with ADCRANGE=0 (±163.84 mV full scale)
+_INA228_VSHUNT_LSB_ADCRANGE0: Final[float] = 312.5e-9  # volts per count
+
+
+def init_peltier_current(bioreactor, config):
+    """
+    Initialize the peltier current sensor (TI INA228) over I2C via smbus2.
+
+    Configures the device for deterministic shunt-voltage readings (ADCRANGE=0,
+    312.5 nV/LSB) and enables on-chip averaging for a stable reading under the
+    peltier's PWM ripple. The current itself is derived at read time from the
+    shunt voltage: I = V_shunt / shunt_ohms (see io.read_peltier_current).
+
+    Args:
+        bioreactor: Bioreactor instance
+        config: Configuration object with PELTIER_CURRENT_* and INA228_SHUNT_OHMS
+
+    Returns:
+        dict: {'initialized': bool}
+    """
+    try:
+        from smbus2 import SMBus, i2c_msg
+    except ImportError as import_error:
+        logger.error(f"Peltier current sensor (INA228) requires smbus2: {import_error}. Install with: pip install smbus2")
+        return {'initialized': False, 'error': str(import_error)}
+
+    address = getattr(config, 'PELTIER_CURRENT_I2C_ADDRESS', 0x40)
+    bus_num = getattr(config, 'PELTIER_CURRENT_I2C_BUS', 1)
+    shunt_ohms = getattr(config, 'INA228_SHUNT_OHMS', 0.015)
+
+    if not shunt_ohms or shunt_ohms <= 0:
+        error_msg = f"INA228_SHUNT_OHMS must be a positive number, got {shunt_ohms!r}"
+        logger.error(error_msg)
+        return {'initialized': False, 'error': error_msg}
+
+    def _write_reg16(bus, reg, value):
+        bus.i2c_rdwr(i2c_msg.write(address, [reg, (value >> 8) & 0xFF, value & 0xFF]))
+
+    def _read_reg16(bus, reg):
+        w = i2c_msg.write(address, [reg])
+        r = i2c_msg.read(address, 2)
+        bus.i2c_rdwr(w, r)
+        b = list(r)
+        return (b[0] << 8) | b[1]
+
+    try:
+        with SMBus(bus_num) as bus:
+            # Verify device identity BEFORE writing any registers, so we never
+            # reconfigure some unrelated chip that happens to answer at this address
+            # (0x40 is a common I2C address). A wrong ID fails init cleanly rather
+            # than letting read_peltier_current emit meaningless "current" values.
+            man_id = _read_reg16(bus, _INA228_REG_MANUFACTURER_ID)
+            dev_id = _read_reg16(bus, _INA228_REG_DEVICE_ID)
+            if man_id != _INA228_MANUFACTURER_ID:
+                error_msg = (
+                    f"Device at {hex(address)} on bus {bus_num} returned manufacturer ID "
+                    f"0x{man_id:04X}, not the INA228's 0x{_INA228_MANUFACTURER_ID:04X}; "
+                    f"refusing to initialize peltier_current (check wiring/address)."
+                )
+                logger.error(error_msg)
+                return {'initialized': False, 'error': error_msg}
+            # Force ADCRANGE=0 so the shunt-voltage LSB is a known 312.5 nV/count.
+            _write_reg16(bus, _INA228_REG_CONFIG, 0x0000)
+            # Continuous conversion of shunt/bus/temp with 64-sample averaging
+            # (MODE=0xF, default conversion times, AVG=0b011) to smooth PWM ripple.
+            _write_reg16(bus, _INA228_REG_ADC_CONFIG, 0xFB6B)
+    except OSError as e:
+        logger.error(f"Peltier current sensor (INA228) I2C error at {hex(address)} on bus {bus_num}: {e}")
+        return {'initialized': False, 'error': str(e)}
+    except Exception as e:
+        logger.error(f"Peltier current sensor (INA228) initialization failed: {e}")
+        return {'initialized': False, 'error': str(e)}
+
+    bioreactor.peltier_current_config = {
+        'i2c_address': address,
+        'i2c_bus': bus_num,
+        'shunt_ohms': shunt_ohms,
+        'vshunt_lsb': _INA228_VSHUNT_LSB_ADCRANGE0,
+    }
+    logger.info(
+        f"Peltier current sensor (INA228) initialized at {hex(address)} on bus {bus_num} "
+        f"(device ID 0x{dev_id:04X}, shunt {shunt_ohms} Ω)"
+    )
+    return {'initialized': True}
+
+
 # Component registry - maps component names to initialization functions
 COMPONENT_REGISTRY = {
     'i2c': init_i2c,
@@ -799,6 +932,8 @@ COMPONENT_REGISTRY = {
     'eyespy_adc': init_eyespy_adc,
     'co2_sensor': init_co2_sensor,
     'o2_sensor': init_o2_sensor,
+    'ambient_temp': init_ambient_temp,
+    'peltier_current': init_peltier_current,
     'pumps': init_pumps,
     'relays': init_relays,
 }
