@@ -150,7 +150,7 @@ def _clean_od_reading(value):
     return value
 
 
-def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 30.0, averaging_duration: float = 0.5):
+def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 10.0, averaging_duration: float = 0.5):
     """
     Measure and record sensor data from OD channels and Temperature to CSV file (no plotting).
     
@@ -161,7 +161,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
     Args:
         bioreactor: Bioreactor instance
         elapsed: Elapsed time in seconds (if None, uses time since start)
-        led_power: LED power percentage for OD measurements (default: 30.0)
+        led_power: LED power percentage for OD measurements (default: 10.0)
         averaging_duration: Duration in seconds for averaging OD measurements (default: 0.5)
         
     Returns:
