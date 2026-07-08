@@ -258,9 +258,18 @@ class RingLightDriver:
             self.bioreactor.logger.error(f"Failed to turn ring light off: {e}")
 
     def refresh(self) -> None:
-        """Re-write the current colour to the strip (useful after SPI noise events)."""
-        if self._is_on:
-            self.set_color(self._current_color)
+        """Re-assert the commanded colour to the strip to correct SPI-noise glitches
+        (e.g. coupling from the IR-LED PWM). Re-writes unconditionally, INCLUDING off
+        (0,0,0), so a pixel that noise turned on is driven back to its intended state.
+        Silent (no logging) so it's safe to call frequently."""
+        if not self._ensure_initialized():
+            return
+        try:
+            r, g, b = self._current_color
+            self._neo.fill_strip(r, g, b)
+            self._neo.update_strip()
+        except Exception as e:
+            self.bioreactor.logger.error(f"Ring light refresh failed: {e}")
 
     @property
     def is_on(self) -> bool:
