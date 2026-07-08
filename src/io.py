@@ -271,6 +271,19 @@ class RingLightDriver:
         except Exception as e:
             self.bioreactor.logger.error(f"Ring light refresh failed: {e}")
 
+    def dodge_off(self) -> None:
+        """Blank the strip WITHOUT changing the commanded colour, so a later refresh()
+        restores it. Used to 'dodge' the ring during an OD read (keep its light off the
+        photodiodes, and off through the IR-PWM-noisy window). Silent, so it's safe to
+        call at the sampler cadence; current_color / is_on stay at the commanded value."""
+        if not self._ensure_initialized():
+            return
+        try:
+            self._neo.fill_strip(0, 0, 0)
+            self._neo.update_strip()
+        except Exception as e:
+            self.bioreactor.logger.error(f"Ring light dodge_off failed: {e}")
+
     @property
     def is_on(self) -> bool:
         """Check if ring light is on (any pixel has non-zero color)."""
