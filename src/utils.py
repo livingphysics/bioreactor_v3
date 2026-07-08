@@ -150,7 +150,8 @@ def _clean_od_reading(value):
     return value
 
 
-def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 10.0, averaging_duration: float = 0.5):
+def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_power: float = 10.0, averaging_duration: float = 0.5,
+                               od_override=None, co2_override=None, o2_override=None, use_cached: bool = False):
     """
     Measure and record sensor data from OD channels and Temperature to CSV file (no plotting).
     
@@ -206,8 +207,14 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
     eyespy_initialized = bioreactor.is_component_initialized('eyespy_adc')
     
     if led_initialized and (od_initialized or eyespy_initialized):
-        # Measure with LED on (reads OD channels and/or eyespy if initialized)
-        od_results = measure_od(bioreactor, led_power=led_power, averaging_duration=averaging_duration, channel_name='all')
+        # use_cached: reuse the background OD sampler's latest reading (dict keyed the
+        # same as measure_od) instead of a fresh, slow, LED-gating measure_od() here —
+        # keeps heater-run control ticks fast. od_override may be None (sampler off) ->
+        # OD/eyespy get logged as NaN, matching the live view.
+        if use_cached:
+            od_results = od_override
+        else:
+            od_results = measure_od(bioreactor, led_power=led_power, averaging_duration=averaging_duration, channel_name='all')
         if od_results:
             # Extract OD channel readings (if OD is initialized)
             if od_initialized and od_channel_names:
@@ -273,9 +280,10 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                     sensor_data[f"eyespy_{board_name}_raw"] = float('nan')
                     sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
     
-    # Read CO2 sensor if initialized
+    # Read CO2 sensor if initialized (use_cached -> the gas sampler's latest value,
+    # avoiding a ~1.5s Atlas read on the control tick)
     if bioreactor.is_component_initialized('co2_sensor'):
-        co2_value = read_co2(bioreactor)
+        co2_value = co2_override if use_cached else read_co2(bioreactor)
         if co2_value is not None:
             # read_co2 already returns value multiplied by 10 to get PPM
             sensor_data['co2'] = co2_value
@@ -284,9 +292,9 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
     else:
         sensor_data['co2'] = float('nan')
     
-    # Read O2 sensor if initialized
+    # Read O2 sensor if initialized (use_cached -> the gas sampler's latest value)
     if bioreactor.is_component_initialized('o2_sensor'):
-        o2_value = read_o2(bioreactor)
+        o2_value = o2_override if use_cached else read_o2(bioreactor)
         if o2_value is not None:
             sensor_data['o2'] = o2_value
         else:
