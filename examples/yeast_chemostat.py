@@ -48,7 +48,7 @@ config.USE_TIMESTAMPED_FILENAME: bool = False
 # the pump at DILUTION_FLOW_ML_S for `duty * period` seconds out of every period,
 # so the time-averaged dilution is `duty * DILUTION_FLOW_ML_S`.
 BATCH_SECONDS = 24 * 3600      # 24 h batch (no-dilution) phase
-DILUTION_FLOW_ML_S = 0.00174   # pump speed while diluting (ml/s)
+DILUTION_FLOW_ML_S = 0.0035   # pump speed while diluting (ml/s)
 DILUTION_DUTY = 0.5            # on-fraction of each duty period
 DILUTION_PERIOD_S = 60.0      # duty-cycle length (s): pump on duty*period, idle the rest
 # Mean dilution once running: 0.5 * 0.00174 = 0.00087 ml/s  (~3.13 ml/h).
@@ -125,9 +125,8 @@ with Bioreactor(config) as reactor:
         # Must run continuously (True) -- each call consumes exactly one period.
         (partial(chemostat_schedule,
                  schedule=[
-                     (BATCH_SECONDS, 0.0),            # 24 h batch: pumps off
-                     (12*3600,  0.25),  # then 0.5 duty 
-                     (None,          DILUTION_DUTY),  # then 0.5 duty forever
+                     (12*3600, 0.0),
+                     (None,          0.25),  # then 0.25 duty forever
                  ],
                  flow_rate_ml_s=DILUTION_FLOW_ML_S,
                  period=DILUTION_PERIOD_S),
