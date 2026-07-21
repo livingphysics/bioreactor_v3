@@ -1,6 +1,7 @@
 numpy
 matplotlib
 adafruit-circuitpython-ads1x15
+adafruit-circuitpython-pct2075   # ambient_temp (NXP PCT2075); required by components.init_ambient_temp
 smbus2
 lgpio
 ds18b20

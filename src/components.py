@@ -450,6 +450,30 @@ def init_optical_density(bioreactor, config):
         return {'initialized': False, 'error': str(e)}
 
 
+def _i2c_device_present(bus_num, address) -> bool:
+    """Return True if a device ACKs at `address` on I2C bus `bus_num`.
+
+    A lightweight presence check (a single receive-byte, same transaction i2cdetect's
+    read-probe uses) for the I2C sensor inits below. Several of them build a device or
+    config object WITHOUT touching the bus, so an absent/unwired sensor would init
+    "successfully" and only fail at read time — falsely advertising the component as
+    available (HTTP 200 + null) instead of 503. Probing here keeps init honest.
+    Any bus/OS error (e.g. Errno 121 Remote I/O) means "not present".
+    """
+    try:
+        from smbus2 import SMBus
+    except ImportError:
+        # Can't probe without smbus2; the caller's own dependency check covers the
+        # missing-library case, so don't introduce a new failure here — assume present.
+        return True
+    try:
+        with SMBus(bus_num) as bus:
+            bus.read_byte(address)
+        return True
+    except Exception:
+        return False
+
+
 def init_eyespy_adc(bioreactor, config):
     """
     Initialize eyespy ADC component (ADS1114 based, from pioreactor pattern).
@@ -487,22 +511,28 @@ def init_eyespy_adc(bioreactor, config):
             }
         
         eyespy_boards = {}
-        
-        # Store configuration for each eyespy board
+
+        # Store configuration for each eyespy board that actually responds on the bus.
+        # Building the config dict alone never touches the hardware, so probe each
+        # address first — an absent board is skipped rather than advertised as available.
         for board_name, board_cfg in eyespy_config.items():
             i2c_address = board_cfg.get('i2c_address', 0x49)
             i2c_bus = board_cfg.get('i2c_bus', 1)
             gain = board_cfg.get('gain', 1.0)
-            
+
+            if not _i2c_device_present(i2c_bus, i2c_address):
+                logger.error(f"Eyespy ADC board {board_name} not responding at {hex(i2c_address)} on bus {i2c_bus}; skipping")
+                continue
+
             eyespy_boards[board_name] = {
                 'i2c_address': i2c_address,
                 'i2c_bus': i2c_bus,
                 'gain': gain,
             }
             logger.info(f"Eyespy ADC board {board_name} configured: address={hex(i2c_address)}, bus={i2c_bus}, gain={gain}")
-        
+
         if not eyespy_boards:
-            error_msg = "No valid eyespy ADC boards configured"
+            error_msg = "No eyespy ADC boards responded on the I2C bus"
             logger.error(error_msg)
             return {'initialized': False, 'error': error_msg}
         
@@ -573,6 +603,16 @@ def init_co2_sensor(bioreactor, config):
             logger.error(error_msg)
             return {'initialized': False, 'error': error_msg}
 
+        # Confirm the sensor actually responds before advertising it as available.
+        # (The Atlas/Senseair device objects above are built without touching the bus,
+        # so without this probe an absent sensor inits "successfully" and only fails at
+        # read time — falsely advertising the component as available instead of 503.)
+        if not _i2c_device_present(co2_i2c_bus, co2_i2c_address):
+            error_msg = (f"CO2 sensor not responding at {hex(co2_i2c_address)} on bus "
+                         f"{co2_i2c_bus} (check wiring/address); refusing to initialize")
+            logger.error(error_msg)
+            return {'initialized': False, 'error': error_msg}
+
         # Store configuration on bioreactor instance
         bioreactor.co2_sensor_config = {
             'i2c_address': co2_i2c_address,
@@ -628,6 +668,14 @@ def init_o2_sensor(bioreactor, config):
             logger.error(f"Failed to initialize Atlas O2 sensor device: {e}")
             return {'initialized': False, 'error': str(e)}
         
+        # Confirm the sensor actually responds before advertising it as available
+        # (the AtlasI2C object above is created without touching the bus).
+        if not _i2c_device_present(o2_i2c_bus, o2_i2c_address):
+            error_msg = (f"O2 sensor not responding at {hex(o2_i2c_address)} on bus "
+                         f"{o2_i2c_bus} (check wiring/address); refusing to initialize")
+            logger.error(error_msg)
+            return {'initialized': False, 'error': error_msg}
+
         # Store configuration on bioreactor instance
         bioreactor.o2_sensor_config = {
             'i2c_address': o2_i2c_address,
