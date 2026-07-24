@@ -74,7 +74,11 @@ class Bioreactor():
         self.logger = logging.getLogger("Bioreactor")
         log_level = getattr(config, 'LOG_LEVEL', 'INFO') if config else 'INFO'
         self.logger.setLevel(getattr(logging, log_level))
-        
+        # This logger installs its own handler(s) below. Don't also propagate to the
+        # root logger — callers (e.g. the API's main.py) run logging.basicConfig(),
+        # which adds a root handler, and propagation would emit every line twice.
+        self.logger.propagate = False
+
         log_format = getattr(config, 'LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s') if config else '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         formatter = logging.Formatter(log_format)
         
