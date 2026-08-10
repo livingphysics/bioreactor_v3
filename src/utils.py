@@ -466,6 +466,12 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             for name, state in bioreactor.relay_driver.get_all_states().items():
                 csv_row[name] = int(state)
 
+        # Add cumulative relay closed-time if tracked (captures doses shorter than the
+        # sample interval — the instantaneous state above would miss those).
+        if hasattr(bioreactor, 'relay_closed_times') and bioreactor.relay_closed_times:
+            for rname, closed_time in bioreactor.relay_closed_times.items():
+                csv_row[f"relay_{rname}_closed_s"] = closed_time
+
         # Add cumulative pump run times if tracked
         if hasattr(bioreactor, 'pump_run_times') and bioreactor.pump_run_times:
             for pname, total_time in bioreactor.pump_run_times.items():
