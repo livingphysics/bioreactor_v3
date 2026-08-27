@@ -474,6 +474,35 @@ def _i2c_device_present(bus_num, address) -> bool:
         return False
 
 
+def _k33_device_present(bus_num, address) -> bool:
+    """Return True if a Senseair K33 answers a ReadRAM handshake at `address`.
+
+    The K33 only speaks its own 4-byte command frames — it does NOT ACK the bare
+    receive-byte that `_i2c_device_present` uses, so a perfectly healthy sensor
+    fails that probe. Exchanging one real ReadRAM frame is both a presence check
+    and proof the sensor is talking the protocol we're about to read it with.
+    """
+    try:
+        from smbus2 import SMBus, i2c_msg  # type: ignore
+    except ImportError:
+        # Mirror _i2c_device_present: the caller's own dependency check covers a
+        # missing smbus2, so don't invent a new failure here.
+        return True
+    try:
+        packet = [0x22, 0x00, 0x08]            # ReadRAM, 2 bytes, CO2 value at 0x0008
+        packet.append(sum(packet) & 0xFF)      # checksum
+        with SMBus(bus_num) as bus:
+            bus.i2c_rdwr(i2c_msg.write(address, packet))
+            time.sleep(0.05)                   # sensor needs ~50ms to prepare the data
+            read = i2c_msg.read(address, 4)
+            bus.i2c_rdwr(read)
+            response = list(read)
+        # response = [status, co2_hi, co2_lo, checksum]; status bit 0 set = complete
+        return len(response) == 4 and (response[0] & 0x01) == 1
+    except Exception:
+        return False
+
+
 def init_eyespy_adc(bioreactor, config):
     """
     Initialize eyespy ADC component (ADS1114 based, from pioreactor pattern).
@@ -607,7 +636,10 @@ def init_co2_sensor(bioreactor, config):
         # (The Atlas/Senseair device objects above are built without touching the bus,
         # so without this probe an absent sensor inits "successfully" and only fails at
         # read time — falsely advertising the component as available instead of 503.)
-        if not _i2c_device_present(co2_i2c_bus, co2_i2c_address):
+        # The K33 needs its own protocol-level probe; everything else read-bytes.
+        _present = (_k33_device_present if co2_type.startswith('sensair')
+                    else _i2c_device_present)
+        if not _present(co2_i2c_bus, co2_i2c_address):
             error_msg = (f"CO2 sensor not responding at {hex(co2_i2c_address)} on bus "
                          f"{co2_i2c_bus} (check wiring/address); refusing to initialize")
             logger.error(error_msg)
