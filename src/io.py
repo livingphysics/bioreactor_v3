@@ -360,6 +360,40 @@ class RelayDriver:
         self.set_all(False)
 
 
+def _i2c_retry(op, logger, what, attempts: int = 2):
+    """Run an I2C read, retrying immediately once on a transient bus failure.
+
+    Measured on bioreactor01 (Pi 5, i2c_designware controller): the FIRST
+    transaction after the bus has been idle fails ~2-5% of the time, while
+    transactions issued back-to-back never failed (0 in 900 reads). A retry is
+    itself a back-to-back transaction, so it recovers essentially all of them --
+    250-read trials recovered 12/12 and 8/8, with zero unrecovered losses.
+
+    There is deliberately NO backoff: sleeping re-creates the idle gap that causes
+    the fault in the first place, and would stall the 1 Hz control tick.
+
+    `op` may report failure either by raising OSError or by returning None -- the
+    low-level _read_* helpers below swallow OSError and return None, and both
+    styles need the same retry.
+    """
+    raised = None
+    for attempt in range(max(1, attempts)):
+        try:
+            result = op()
+            if result is not None:
+                return result
+        except OSError as e:              # bus-level: timeout / remote I/O
+            raised = e
+        except Exception as e:            # anything else is not a bus fault
+            logger.error(f"Error reading {what}: {e}")
+            return None
+        if attempt + 1 < attempts:
+            logger.debug(f"I2C read of {what} failed (attempt {attempt + 1}/{attempts}); retrying")
+    if raised is not None:                # op() raised; inner helpers log their own
+        logger.error(f"Error reading {what}: {raised}")
+    return None
+
+
 def read_voltage(bioreactor, channel_name: str) -> Optional[float]:
     """
     Read voltage from an optical density ADC channel.
@@ -383,13 +417,8 @@ def read_voltage(bioreactor, channel_name: str) -> Optional[float]:
         bioreactor.logger.warning(f"OD channel '{channel_name}' not found. Available: {list(bioreactor.od_channels.keys())}")
         return None
     
-    try:
-        channel = bioreactor.od_channels[channel_name]
-        voltage = channel.voltage
-        return voltage
-    except Exception as e:
-        bioreactor.logger.error(f"Error reading voltage from channel {channel_name}: {e}")
-        return None
+    return _i2c_retry(lambda: bioreactor.od_channels[channel_name].voltage,
+                      bioreactor.logger, f"voltage from channel {channel_name}")
 
 
 def set_led(bioreactor, power: float) -> bool:
@@ -835,16 +864,11 @@ def read_eyespy_adc(bioreactor, board_name: str = None) -> Optional[int]:
         bioreactor.logger.error("Eyespy read function not available")
         return None
     
-    try:
-        reading = read_func(
-            i2c_address=board_cfg['i2c_address'],
-            i2c_bus=board_cfg['i2c_bus'],
-            gain=board_cfg['gain']
-        )
-        return reading
-    except Exception as e:
-        bioreactor.logger.error(f"Error reading eyespy ADC board {board_name}: {e}")
-        return None
+    return _i2c_retry(
+        lambda: read_func(i2c_address=board_cfg['i2c_address'],
+                          i2c_bus=board_cfg['i2c_bus'],
+                          gain=board_cfg['gain']),
+        bioreactor.logger, f"eyespy ADC board {board_name}")
 
 
 def read_eyespy_voltage(bioreactor, board_name: str = None) -> Optional[float]:
@@ -1115,7 +1139,9 @@ def read_o2(bioreactor) -> Optional[float]:
         bioreactor.logger.error("Atlas O2 sensor device not initialized")
         return None
     
-    return _read_o2_atlas(atlas_device=atlas_device, logger=bioreactor.logger)
+    return _i2c_retry(
+        lambda: _read_o2_atlas(atlas_device=atlas_device, logger=bioreactor.logger),
+        bioreactor.logger, "O2 (Atlas)")
 
 
 def read_co2(bioreactor) -> Optional[int]:
@@ -1153,14 +1179,19 @@ def read_co2(bioreactor) -> Optional[int]:
         if bus_num is None:
             bioreactor.logger.error("CO2 sensor I2C bus not specified in configuration (required for Senseair K33)")
             return None
-        return _read_co2_sensair_k33(i2c_addr=i2c_addr, bus_num=bus_num, logger=bioreactor.logger)
+        return _i2c_retry(
+            lambda: _read_co2_sensair_k33(i2c_addr=i2c_addr, bus_num=bus_num,
+                                          logger=bioreactor.logger),
+            bioreactor.logger, "CO2 (Senseair K33)")
     elif sensor_type.startswith('atlas'):
         # Get pre-initialized Atlas device from config
         atlas_device = config.get('atlas_device')
         if atlas_device is None:
             bioreactor.logger.error("Atlas CO2 sensor device not initialized")
             return None
-        return _read_co2_atlas(atlas_device=atlas_device, logger=bioreactor.logger)
+        return _i2c_retry(
+            lambda: _read_co2_atlas(atlas_device=atlas_device, logger=bioreactor.logger),
+            bioreactor.logger, "CO2 (Atlas)")
     else:
         bioreactor.logger.error(f"Unsupported CO2 sensor type: {sensor_type}")
         return None
@@ -1185,11 +1216,8 @@ def read_ambient_temp(bioreactor) -> Optional[float]:
         bioreactor.logger.warning("Ambient temp sensor not available")
         return None
 
-    try:
-        return float(sensor.temperature)
-    except Exception as e:
-        bioreactor.logger.error(f"Error reading ambient temperature (PCT2075): {e}")
-        return None
+    return _i2c_retry(lambda: float(sensor.temperature),
+                      bioreactor.logger, "ambient temperature (PCT2075)")
 
 
 def _read_ina228_current(i2c_addr: int, bus_num: int, shunt_ohms: float, vshunt_lsb: float, logger) -> Optional[float]:
@@ -1260,13 +1288,15 @@ def read_peltier_current(bioreactor) -> Optional[float]:
         return None
 
     config = bioreactor.peltier_current_config
-    return _read_ina228_current(
-        i2c_addr=config['i2c_address'],
-        bus_num=config['i2c_bus'],
-        shunt_ohms=config['shunt_ohms'],
-        vshunt_lsb=config['vshunt_lsb'],
-        logger=bioreactor.logger,
-    )
+    return _i2c_retry(
+        lambda: _read_ina228_current(
+            i2c_addr=config['i2c_address'],
+            bus_num=config['i2c_bus'],
+            shunt_ohms=config['shunt_ohms'],
+            vshunt_lsb=config['vshunt_lsb'],
+            logger=bioreactor.logger,
+        ),
+        bioreactor.logger, "peltier current (INA228)")
 
 
 def change_pump(bioreactor, pump_name: str, ml_per_sec: float, direction: Optional[str] = None) -> None:

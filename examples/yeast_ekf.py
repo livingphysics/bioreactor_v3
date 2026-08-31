@@ -31,6 +31,33 @@ config.LOG_FILE = 'bioreactor.log'  # Also log to file
 config.USE_TIMESTAMPED_FILENAME: bool = False 
 
 
+# --- CO2 dose: close relay_1 for 1 s every 30 minutes ------------------------
+# NOT relay_schedule(): that is a poller (it maps `elapsed` -> state on each call),
+# so it can only resolve pulses longer than its job interval -- a 1 s window would
+# be missed on almost every tick. reactor.run() gives each job its own thread, so a
+# short blocking pulse here costs the other jobs nothing.
+#
+# try/finally matters: unlike the API's relay_controller there is no max_duration_s
+# auto-revert here, so if the dose is interrupted the relay would otherwise stay
+# energised (gas flowing) indefinitely.
+# NOTE: hardware_testing/relay_gui.py numbers relays DIFFERENTLY -- its RELAY_PINS
+# map is {relay1: 6, relay2: 13, relay3: 19, relay4: 26}, offset by one from
+# config.RELAYS {relay_1: 5, relay_2: 6, relay_3: 13, relay_4: 19}. The GUI's
+# "relay1" is BCM 6 == relay_2 here. Below is BCM 5 (the CO2 line), which the GUI
+# cannot address at all. Polarity does agree: ON == energised == closed in both.
+DOSE_RELAY = 'relay_1'      # BCM 5 -- the CO2 line
+DOSE_SECONDS = 1.0
+
+def dose_relay(reactor, elapsed=None):
+    """Close DOSE_RELAY for DOSE_SECONDS, then guarantee it re-opens."""
+    try:
+        relay_on(reactor, DOSE_RELAY)          # True/ON == energised == closed
+        time.sleep(DOSE_SECONDS)
+    finally:
+        relay_off(reactor, DOSE_RELAY)
+    reactor.logger.info(f"{DOSE_RELAY} dosed for {DOSE_SECONDS:.0f}s")
+
+
 # Initialize bioreactor
 with Bioreactor(config) as reactor:
     # Check if components are initialized
@@ -83,24 +110,28 @@ with Bioreactor(config) as reactor:
     # duration: how long to run in seconds, or True for indefinite
     jobs = [
         # Measure and record sensors every 20 seconds with IR led at 15%
-        (partial(measure_and_record_sensors, led_power=15.0), 10, True),  # Read sensors and record to CSV every 5 seconds
+        (partial(measure_and_record_sensors, led_power=10.0), 10, True),  # Read sensors and record to CSV every 5 seconds
         
         # Temperature profile: 30°C for 3 hours, then 25°C indefinitely
-        (partial(temperature_pid_controller, setpoint=30.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
-        # (partial(temperature_profile, profile=[
-            # (3 * 3600, 25.0),
-            # (3 * 3600, 27.5),
-            # (None, 30.0),
-        # ]), 20, True),
+        # (partial(temperature_pid_controller, setpoint=37.0, kp=12.0, ki=0.015, kd=0.0), 5, True),
+        (partial(temperature_profile, profile=[
+            (3 * 3600, 30.0),
+            (3 * 3600, 33.0),
+            (None, 37.0),
+        ]), 30, True),
 
         # EKF turbidostat (temp control handled by temperature_profile above)
         (partial(turbidostat_ekf_mode,
-            od_setpoint=0.1,
-            od_channel='OD_135_V',
+            od_setpoint=0.2,
+            od_channel='Eyespy_sct_V',   # must match the CSV column exactly
             R=0.003,
-            Q_growth_rate=5e-12,
+            Q_growth_rate=5e-5,
+            pump_distrust_cycles=5,
             pump_duration=60.0,
-        ), 10, True)
+        ), 10, True),
+
+        # CO2 dose: 1 s closed every 30 minutes
+        (dose_relay, 30 * 60, True),
 
     ]
     
