@@ -5,8 +5,9 @@ Each function initializes a specific component and returns a dict with the compo
 
 import logging
 import struct
+import subprocess
 import time
-from typing import Final
+from typing import Final, Optional
 
 logger = logging.getLogger("Bioreactor.Components")
 
@@ -151,6 +152,89 @@ def _read_eyespy_adc(
         bus.close()
 
 
+# I2C bus lockup recovery
+# ============================================================================
+# A slave left mid-byte (master killed mid-transaction, power glitch) keeps
+# holding SDA low, and then NO device on the bus can be reached until it is
+# clocked out. Observed twice on bioreactor01, once with nothing running: every
+# I2C component fails to initialize and stays dead until someone intervenes.
+#
+# The fix is the standard one: pulse SCL until the stuck slave finishes its byte
+# and releases SDA, then issue a STOP. Lines are driven open-drain style (drive
+# low, or release and let the pull-up raise them) so there is never contention
+# with a device that is holding the line.
+_SDA_PIN, _SCL_PIN = 2, 3          # BCM, i2c-1 (ALT3 = a3 when muxed to the controller)
+_RECOVERY_CLOCKS = 12              # >= 9: enough for one byte plus the ACK
+
+
+def _pinctrl(*args) -> Optional[str]:
+    """Run pinctrl, returning stdout, or None if it is unavailable/fails."""
+    try:
+        r = subprocess.run(['pinctrl', *args], capture_output=True, text=True, timeout=5)
+        return r.stdout if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def i2c_sda_stuck_low() -> Optional[bool]:
+    """True if SDA is held low (bus wedged), False if idle-high, None if unknown."""
+    out = _pinctrl('get', str(_SDA_PIN))
+    if not out:
+        return None
+    return '| lo' in out
+
+
+def recover_i2c_bus() -> bool:
+    """Clock a stuck I2C bus free. Returns True if SDA is high afterwards.
+
+    Safe to call when the bus is already healthy: it re-asserts ALT3 and returns.
+    Requires the `pinctrl` tool; membership of the `gpio` group is enough (no sudo).
+    """
+    if _pinctrl('get', str(_SDA_PIN)) is None:
+        logger.warning("I2C recovery: pinctrl unavailable, cannot check/recover the bus")
+        return False
+
+    # Take manual control; input+pull-up == released (open-drain high).
+    _pinctrl('set', str(_SCL_PIN), 'ip', 'pu')
+    _pinctrl('set', str(_SDA_PIN), 'ip', 'pu')
+    time.sleep(0.01)
+
+    for _ in range(_RECOVERY_CLOCKS):
+        _pinctrl('set', str(_SCL_PIN), 'op', 'dl')   # SCL low
+        time.sleep(0.005)
+        _pinctrl('set', str(_SCL_PIN), 'ip', 'pu')   # release -> high
+        time.sleep(0.005)
+
+    # STOP condition: SDA low while SCL is high, then release SDA.
+    _pinctrl('set', str(_SDA_PIN), 'op', 'dl')
+    time.sleep(0.005)
+    _pinctrl('set', str(_SCL_PIN), 'ip', 'pu')
+    time.sleep(0.005)
+    _pinctrl('set', str(_SDA_PIN), 'ip', 'pu')
+    time.sleep(0.005)
+
+    # Hand the pins back to the I2C controller.
+    _pinctrl('set', str(_SDA_PIN), 'a3')
+    _pinctrl('set', str(_SCL_PIN), 'a3')
+    time.sleep(0.2)
+    return i2c_sda_stuck_low() is False
+
+
+def ensure_i2c_bus_free() -> bool:
+    """Check SDA and clock the bus free if it is stuck. True if usable afterwards."""
+    stuck = i2c_sda_stuck_low()
+    if stuck is None:
+        return True          # cannot tell; let the normal init path report failures
+    if not stuck:
+        return True
+    logger.warning("I2C bus is wedged (SDA held low) - clocking it free before init")
+    if recover_i2c_bus():
+        logger.info("I2C bus recovered: SDA released")
+        return True
+    logger.error("I2C bus recovery FAILED - SDA still low; devices will not initialize")
+    return False
+
+
 def init_i2c(bioreactor, config):
     """
     Initialize I2C bus.
@@ -162,6 +246,9 @@ def init_i2c(bioreactor, config):
     Returns:
         dict: {'i2c': i2c object, 'initialized': bool}
     """
+    # A wedged bus makes every component below fail; clear it first.
+    ensure_i2c_bus_free()
+
     try:
         import board
         import busio
