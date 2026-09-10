@@ -108,19 +108,18 @@ class ODManualReadingGUI:
                                            state="disabled")
         self.swap_sweep_button.pack(pady=5)
         
-        # Get channel names from config (OD channels + eyespy boards)
+        # Channel names from the optical plan: voltage sources of both kinds (legacy
+        # configs give the OD_ADC_CHANNELS keys + EYESPY_ADC board names, as before)
         try:
+            from src.optics import resolve_optical_config
             config = Config()
-            od_channels = getattr(config, 'OD_ADC_CHANNELS', {})
-            self.od_channels = list(od_channels.keys()) if od_channels else ['Trx', 'Sct', 'Ref']
-            
-            # Get eyespy board names
-            eyespy_config = getattr(config, 'EYESPY_ADC', {})
-            self.eyespy_boards = list(eyespy_config.keys()) if eyespy_config else []
-            
-            # Combine all channels for display
+            config.INIT_COMPONENTS = dict(getattr(config, 'INIT_COMPONENTS', {}),
+                                          optical_density=True, eyespy_adc=True)
+            plan = resolve_optical_config(config)
+            self.od_channels = plan.source_names('adc') or ['Trx', 'Sct', 'Ref']
+            self.eyespy_boards = plan.source_names('eyespy')
             self.channels = self.od_channels + self.eyespy_boards
-        except:
+        except Exception:
             # Fallback to default channels
             self.od_channels = ['Trx', 'Sct', 'Ref']
             self.eyespy_boards = []

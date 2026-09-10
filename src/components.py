@@ -474,7 +474,9 @@ def init_optical_density(bioreactor, config):
     
     Args:
         bioreactor: Bioreactor instance
-        config: Configuration object with OD_ADC_CHANNELS mapping
+        config: Configuration object; used as a fallback when the bioreactor has no
+                optical plan (bioreactor.optics: VOLTAGE_SOURCES kind 'adc', or the
+                legacy OD_ADC_CHANNELS) — see src/optics.py
         
     Returns:
         dict: {'initialized': bool}
@@ -498,12 +500,24 @@ def init_optical_density(bioreactor, config):
         # Initialize ADS1115 ADC
         ads = ADS1115(bioreactor.i2c)
         
-        # Get channel mapping from config
-        channel_map = getattr(config, 'OD_ADC_CHANNELS', {
-            'Trx': 'A0',
-            'Ref': 'A1',
-            'Sct': 'A2',
-        })
+        # Channel map (source name -> pin) from the optical plan; legacy configs give the
+        # OD_ADC_CHANNELS names verbatim. Fall back to the raw config for callers that
+        # build components by hand without a Bioreactor plan.
+        plan = getattr(bioreactor, 'optics', None)
+        if plan is not None and (plan.sources or not plan.legacy):
+            # A plan exists: use its adc sources. An explicit new-style plan with none
+            # means "no ADS1115 inputs on this rig" — do not invent the driver defaults.
+            channel_map = {s.name: s.channel for s in plan.sources_of('adc')}
+            if not channel_map:
+                error_msg = "No ADS1115 voltage sources configured (VOLTAGE_SOURCES kind 'adc')"
+                logger.error(error_msg)
+                return {'initialized': False, 'error': error_msg}
+        else:
+            channel_map = getattr(config, 'OD_ADC_CHANNELS', {
+                'Trx': 'A0',
+                'Ref': 'A1',
+                'Sct': 'A2',
+            })
         
         # Map pin names to ads1x15.Pin objects
         pin_map = {
@@ -599,7 +613,9 @@ def init_eyespy_adc(bioreactor, config):
     
     Args:
         bioreactor: Bioreactor instance
-        config: Configuration object with EYESPY_ADC configuration
+        config: Configuration object; used as a fallback when the bioreactor has no
+                optical plan (bioreactor.optics: VOLTAGE_SOURCES kind 'eyespy', or the
+                legacy EYESPY_ADC) — see src/optics.py
         
     Returns:
         dict: {'initialized': bool, 'eyespy_boards': dict of board configs}
@@ -612,8 +628,22 @@ def init_eyespy_adc(bioreactor, config):
         return {'initialized': False, 'error': str(import_error)}
     
     try:
-        # Get eyespy ADC configuration from config
-        eyespy_config = getattr(config, 'EYESPY_ADC', {})
+        # Board configs (source name -> {i2c_address, i2c_bus, gain}) from the optical plan;
+        # legacy configs give the EYESPY_ADC board names verbatim. Fall back to the raw
+        # config for callers that build components by hand without a Bioreactor plan.
+        plan = getattr(bioreactor, 'optics', None)
+        if plan is not None and (plan.sources or not plan.legacy):
+            eyespy_config = {s.name: s.as_board_config() for s in plan.sources_of('eyespy')}
+            if not eyespy_config and not plan.legacy:
+                # an explicit new-style plan with no eyespy sources: nothing to initialise
+                error_msg = "No eyespy voltage sources configured (VOLTAGE_SOURCES kind 'eyespy')"
+                logger.error(error_msg)
+                return {'initialized': False, 'error': error_msg}
+            if not eyespy_config:
+                # legacy plan that dropped every board (e.g. a name collision): raw config, as before
+                eyespy_config = getattr(config, 'EYESPY_ADC', {})
+        else:
+            eyespy_config = getattr(config, 'EYESPY_ADC', {})
         
         if not eyespy_config:
             logger.warning("No EYESPY_ADC configuration found, using defaults")

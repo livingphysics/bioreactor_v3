@@ -14,6 +14,25 @@ import numpy as np
 logger = logging.getLogger("Bioreactor.Utils")
 
 
+def _plan_for(bioreactor, config=None):
+    """The bioreactor's OpticalPlan (see optics.py). Bioreactor() resolves it at construction;
+    for hand-built objects resolve it once here, log its errors/warnings, and cache it."""
+    plan = getattr(bioreactor, 'optics', None)
+    if plan is None:
+        from .optics import resolve_optical_config
+        plan = resolve_optical_config(config if config is not None else getattr(bioreactor, 'cfg', None))
+        log = getattr(bioreactor, 'logger', None) or logging.getLogger('Bioreactor')
+        for err in plan.errors:
+            log.error(f"Optical config: {err}")
+        for w in plan.warnings:
+            log.warning(f"Optical config: {w}")
+        try:
+            bioreactor.optics = plan
+        except Exception:
+            pass
+    return plan
+
+
 def _standalone_ekf_update(bioreactor, sensor_data, elapsed):
     """Run a standalone EKF update to estimate OD and growth rate.
 
@@ -21,19 +40,17 @@ def _standalone_ekf_update(bioreactor, sensor_data, elapsed):
     is running (i.e. bioreactor.ekf_estimates does not already exist).  It
     uses the same maths as turbidostat_ekf_mode but without any pump logic.
     """
-    # --- Pick the OD channel from sensor_data ---
-    config = getattr(bioreactor, 'config', None)
+    # --- Pick the OD channel from sensor_data (EKF_OD_CHANNEL via the optical plan) ---
+    config = getattr(bioreactor, 'cfg', None)
     ekf_channel = getattr(config, 'EKF_OD_CHANNEL', '135') if config else '135'
-
-    eyespy_init = bioreactor.is_component_initialized('eyespy_adc')
-    od_init = bioreactor.is_component_initialized('optical_density')
-
-    if eyespy_init:
-        z_k = sensor_data.get(f'eyespy_{ekf_channel}_voltage', float('nan'))
-    elif od_init:
-        z_k = sensor_data.get(f'od_{ekf_channel.lower()}', float('nan'))
-    else:
-        return  # no OD sensor available
+    plan = _plan_for(bioreactor, config)
+    resolved = plan.resolve_ekf_channel(
+        ekf_channel,
+        od_initialized=bioreactor.is_component_initialized('optical_density'),
+        eyespy_initialized=bioreactor.is_component_initialized('eyespy_adc'))
+    if resolved is None:
+        return  # no OD measurement / voltage source for the EKF
+    z_k = sensor_data.get(resolved[0], float('nan'))
 
     if np.isnan(z_k):
         return  # no valid reading this cycle
@@ -169,7 +186,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         dict: Dictionary with all sensor readings
     """
     # Import IO functions
-    from .io import get_temperature, read_voltage, measure_od, read_all_eyespy_boards, read_eyespy_voltage, read_eyespy_adc, read_co2, read_o2, read_ambient_temp, read_peltier_current, get_peltier_state, get_ring_light_color
+    from .io import get_temperature, read_all_voltages, measure_od, read_eyespy_adc, read_co2, read_o2, read_ambient_temp, read_peltier_current, get_peltier_state, get_ring_light_color
     
     # Get elapsed time
     if elapsed is None:
@@ -180,13 +197,11 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
     # Get config
     config = getattr(bioreactor, 'cfg', None)
     
-    # Get OD channel names from config (keys of OD_ADC_CHANNELS dict)
-    od_channel_names = []
-    if config and hasattr(config, 'OD_ADC_CHANNELS'):
-        od_channel_names = list(config.OD_ADC_CHANNELS.keys())
-    elif hasattr(bioreactor, 'od_channels'):
-        # Fallback: use channel names from initialized od_channels
-        od_channel_names = list(bioreactor.od_channels.keys())
+    # Optical plan: named voltage sources + OD measurements (legacy configs resolve to the
+    # old names). optical_columns = [(sensor_data key, CSV label, component)], computed by
+    # Bioreactor.__init__ (with SENSOR_LABELS overrides applied).
+    plan = _plan_for(bioreactor, config)
+    optical_columns = getattr(bioreactor, 'optical_columns', None) or plan.logged_columns()
     
     # Read sensors
     sensor_data = {'elapsed_time': elapsed}
@@ -199,86 +214,51 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         else:
             sensor_data['temperature'] = float('nan')
     
-    # Read OD channels and/or eyespy with LED on if LED is initialized
-    # measure_od() handles turning LED on, taking readings, and turning LED off
-    # It works with OD only, eyespy only, or both
+    # Optical readings: every voltage source (both kinds) in one IR-gated measurement when
+    # the LED is available (measure_od 'all' -> {source: avg V}); un-gated reads otherwise.
+    # use_cached: reuse the background OD sampler's latest {source: V} (od_override) instead
+    # of a fresh, slow, LED-gating measure_od() — keeps run control ticks fast. od_override
+    # may be None (sampler off) -> optical values log as NaN, matching the live view.
     led_initialized = bioreactor.is_component_initialized('led')
     od_initialized = bioreactor.is_component_initialized('optical_density')
     eyespy_initialized = bioreactor.is_component_initialized('eyespy_adc')
-    
-    if led_initialized and (od_initialized or eyespy_initialized):
-        # use_cached: reuse the background OD sampler's latest reading (dict keyed the
-        # same as measure_od) instead of a fresh, slow, LED-gating measure_od() here —
-        # keeps heater-run control ticks fast. od_override may be None (sampler off) ->
-        # OD/eyespy get logged as NaN, matching the live view.
-        if use_cached:
-            od_results = od_override
+    any_optics = od_initialized or eyespy_initialized
+
+    readings = {}   # source name -> volts (NaN when unavailable)
+    if any_optics:
+        if led_initialized:
+            od_results = od_override if use_cached else measure_od(
+                bioreactor, led_power=led_power, averaging_duration=averaging_duration, channel_name='all')
         else:
-            od_results = measure_od(bioreactor, led_power=led_power, averaging_duration=averaging_duration, channel_name='all')
-        if od_results:
-            # Extract OD channel readings (if OD is initialized)
-            if od_initialized and od_channel_names:
-                for ch_name in od_channel_names:
-                    plot_key = f"od_{ch_name.lower()}"
-                    sensor_data[plot_key] = _clean_od_reading(od_results.get(ch_name, None))
-            elif od_channel_names:
-                # OD channels requested but not initialized - set to NaN
-                for ch_name in od_channel_names:
-                    plot_key = f"od_{ch_name.lower()}"
-                    sensor_data[plot_key] = float('nan')
-            
-            # Extract eyespy readings from od_results (averaged voltages with LED on)
-            if eyespy_initialized and hasattr(bioreactor, 'eyespy_boards'):
-                for board_name in bioreactor.eyespy_boards.keys():
-                    eyespy_voltage = _clean_od_reading(od_results.get(board_name, None))
-                    if not np.isnan(eyespy_voltage):
-                        # Store the averaged voltage from measure_od (LED was on during measurement)
-                        sensor_data[f"eyespy_{board_name}_voltage"] = eyespy_voltage
-                        # Also get raw value for completeness (single reading after LED is off)
-                        # Note: This raw value is NOT used to recalculate voltage - the averaged voltage above is used
-                        raw_value = read_eyespy_adc(bioreactor, board_name)
-                        sensor_data[f"eyespy_{board_name}_raw"] = raw_value if raw_value is not None else float('nan')
-                    else:
-                        sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
-                        sensor_data[f"eyespy_{board_name}_raw"] = float('nan')
-        else:
-            # No results, set all to NaN
-            if od_channel_names:
-                for ch_name in od_channel_names:
-                    plot_key = f"od_{ch_name.lower()}"
-                    sensor_data[plot_key] = float('nan')
-            # Also set eyespy to NaN if initialized
-            if eyespy_initialized and hasattr(bioreactor, 'eyespy_boards'):
-                for board_name in bioreactor.eyespy_boards.keys():
-                    sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
-                    sensor_data[f"eyespy_{board_name}_raw"] = float('nan')
+            od_results = read_all_voltages(bioreactor)
+        od_results = od_results or {}
+        for name in plan.sources:
+            readings[name] = _clean_od_reading(od_results.get(name, None))
+
+    # OD measurements (od_45 / od_ref / od_90 / od_135 keys) from their sources
+    for od_name, src_name in plan.od.items():
+        sensor_data[plan.od_key(od_name)] = readings.get(src_name, float('nan'))
+    if plan.legacy:
+        # Legacy keys, exactly as before: every CONFIGURED adc channel as od_<chan> (NaN when
+        # it did not initialise); only eyespy boards that actually initialised (ACKed the bus
+        # probe) as eyespy_<b>_voltage plus a raw count (a single un-gated read, as before) —
+        # a configured-but-absent board keeps its header column with empty cells.
+        boards = getattr(bioreactor, 'eyespy_boards', None) or {}
+        for name, src in plan.sources.items():
+            if src.kind == 'adc':
+                sensor_data[plan.source_key(name)] = readings.get(name, float('nan'))
+            elif name in boards:
+                v = readings.get(name, float('nan'))
+                sensor_data[plan.source_key(name)] = v
+                raw = float('nan')
+                if eyespy_initialized and not np.isnan(v):
+                    r = read_eyespy_adc(bioreactor, name)
+                    raw = r if r is not None else float('nan')
+                sensor_data[plan.legacy_raw_key(name)] = raw
     else:
-        # Try reading without LED if OD sensor is available but LED is not
-        if bioreactor.is_component_initialized('optical_density') and od_channel_names:
-            for ch_name in od_channel_names:
-                plot_key = f"od_{ch_name.lower()}"
-                sensor_data[plot_key] = _clean_od_reading(read_voltage(bioreactor, ch_name))
-        else:
-            # No OD available, set all to NaN
-            for ch_name in od_channel_names:
-                plot_key = f"od_{ch_name.lower()}"
-                sensor_data[plot_key] = float('nan')
-    
-    # Eyespy ADC readings when LED is not initialized (read separately without LED)
-    # Note: If LED is initialized, eyespy should have been read above via measure_od()
-    if eyespy_initialized and not led_initialized:
-        eyespy_readings = read_all_eyespy_boards(bioreactor)
-        if eyespy_readings:
-            for board_name, raw_value in eyespy_readings.items():
-                if raw_value is not None:
-                    # Store raw value
-                    sensor_data[f"eyespy_{board_name}_raw"] = raw_value
-                    # Also get voltage (single reading, LED off)
-                    voltage = _clean_od_reading(read_eyespy_voltage(bioreactor, board_name))
-                    sensor_data[f"eyespy_{board_name}_voltage"] = voltage
-                else:
-                    sensor_data[f"eyespy_{board_name}_raw"] = float('nan')
-                    sensor_data[f"eyespy_{board_name}_voltage"] = float('nan')
+        # New-style: sources no OD measurement consumes get their own voltage_<name> key
+        for name in plan.unmapped_sources():
+            sensor_data[plan.source_key(name)] = readings.get(name, float('nan'))
     
     # Read CO2 sensor if initialized (use_cached -> the gas sampler's latest value,
     # avoiding a ~1.5s Atlas read on the control tick)
@@ -363,49 +343,11 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
                 temp_label = 'temperature_C'
             csv_row[temp_label] = sensor_data['temperature']
         
-        # Add OD data dynamically using config labels or auto-generate (only if optical_density is initialized)
-        if bioreactor.is_component_initialized('optical_density'):
-            for ch_name in od_channel_names:
-                plot_key = f"od_{ch_name.lower()}"
-                if plot_key in sensor_data:
-                    # Try to get label from SENSOR_LABELS first
-                    if config and hasattr(config, 'SENSOR_LABELS'):
-                        # Try multiple possible label keys
-                        label = (config.SENSOR_LABELS.get(plot_key) or 
-                                config.SENSOR_LABELS.get(f"od_{ch_name}") or
-                                config.SENSOR_LABELS.get(f"od_{ch_name.lower()}") or
-                                config.SENSOR_LABELS.get(f"od_{ch_name.upper()}") or
-                                f"OD_{ch_name}_V")
-                    else:
-                        # Auto-generate label
-                        label = f"OD_{ch_name}_V"
-                    csv_row[label] = sensor_data[plot_key]
-        
-        # Add eyespy ADC data dynamically
-        if bioreactor.is_component_initialized('eyespy_adc') and hasattr(bioreactor, 'eyespy_boards'):
-            for board_name in bioreactor.eyespy_boards.keys():
-                raw_key = f"eyespy_{board_name}_raw"
-                voltage_key = f"eyespy_{board_name}_voltage"
-                
-                # Get labels from config or auto-generate
-                if config and hasattr(config, 'SENSOR_LABELS'):
-                    raw_label = config.SENSOR_LABELS.get(raw_key, f"Eyespy_{board_name}_raw")
-                    voltage_label = config.SENSOR_LABELS.get(voltage_key, f"Eyespy_{board_name}_V")
-                else:
-                    raw_label = f"Eyespy_{board_name}_raw"
-                    voltage_label = f"Eyespy_{board_name}_V"
-                
-                # Write raw value if available
-                if raw_key in sensor_data:
-                    csv_row[raw_label] = sensor_data[raw_key]
-                
-                # Write voltage value - this should be the averaged voltage from measure_od (with LED on)
-                if voltage_key in sensor_data:
-                    voltage_value = sensor_data[voltage_key]
-                    csv_row[voltage_label] = voltage_value
-                    # Debug: verify we're writing the correct averaged value
-                    if not np.isnan(voltage_value):
-                        bioreactor.logger.debug(f"Writing eyespy {board_name} voltage to CSV: {voltage_value:.4f}V (label: {voltage_label})")
+        # Optical columns (OD measurements + voltage sources): labels from the plan /
+        # SENSOR_LABELS, written only when the source's component is initialized
+        for key, label, component in optical_columns:
+            if key in sensor_data and bioreactor.is_component_initialized(component):
+                csv_row[label] = sensor_data[key]
         
         # Add CO2 data if sensor is initialized
         if bioreactor.is_component_initialized('co2_sensor') and 'co2' in sensor_data:
@@ -507,23 +449,12 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
         if not np.isnan(temp_value):
             log_parts.append(f"Temp: {temp_value:.2f}°C")
     
-    # Add OD channels to log only if optical_density is initialized
-    if bioreactor.is_component_initialized('optical_density'):
-        for ch_name in od_channel_names:
-            plot_key = f"od_{ch_name.lower()}"
-            if plot_key in sensor_data:
-                od_value = sensor_data.get(plot_key, float('nan'))
-                if not np.isnan(od_value):
-                    log_parts.append(f"OD {ch_name}: {od_value:.4f}V")
-    
-    # Add eyespy readings to log
-    if bioreactor.is_component_initialized('eyespy_adc') and hasattr(bioreactor, 'eyespy_boards'):
-        for board_name in bioreactor.eyespy_boards.keys():
-            voltage_key = f"eyespy_{board_name}_voltage"
-            if voltage_key in sensor_data:
-                voltage = sensor_data[voltage_key]
-                if not np.isnan(voltage):
-                    log_parts.append(f"Eyespy {board_name}: {voltage:.4f}V")
+    # Optical readings (OD measurements + voltage sources), only for initialized components
+    for key, label, component in optical_columns:
+        if bioreactor.is_component_initialized(component) and key in sensor_data:
+            v = sensor_data[key]
+            if isinstance(v, (int, float)) and not np.isnan(v):
+                log_parts.append(f"{label[:-2] if label.endswith('_V') else label}: {v:.4f}V")
     
     # Add CO2 reading to log
     if bioreactor.is_component_initialized('co2_sensor') and 'co2' in sensor_data:
@@ -1357,24 +1288,20 @@ def turbidostat_ekf_mode(
     # Flag so standalone EKF in measure_and_record_sensors knows to skip
     bioreactor._turbidostat_ekf_active = True
 
-    # --- Resolve OD channel to CSV column label ---
+    # --- Resolve OD channel to CSV column label (via the optical plan) ---
     if od_channel is None:
-        config = getattr(bioreactor, 'config', None)
+        config = getattr(bioreactor, 'cfg', None)
         ekf_ch = getattr(config, 'EKF_OD_CHANNEL', '135') if config else '135'
-        # Resolve to CSV label: check SENSOR_LABELS, then auto-generate
-        eyespy_init = bioreactor.is_component_initialized('eyespy_adc')
-        if eyespy_init:
-            if config and hasattr(config, 'SENSOR_LABELS'):
-                od_channel = config.SENSOR_LABELS.get(f'eyespy_{ekf_ch}_voltage', f'Eyespy_{ekf_ch}_V')
-            else:
-                od_channel = f'Eyespy_{ekf_ch}_V'
-        else:
-            if config and hasattr(config, 'SENSOR_LABELS'):
-                od_channel = (config.SENSOR_LABELS.get(f'od_{ekf_ch.lower()}') or
-                              config.SENSOR_LABELS.get(f'od_{ekf_ch}') or
-                              f'OD_{ekf_ch}_V')
-            else:
-                od_channel = f'OD_{ekf_ch}_V'
+        plan = _plan_for(bioreactor, config)
+        resolved = plan.resolve_ekf_channel(
+            ekf_ch,
+            od_initialized=bioreactor.is_component_initialized('optical_density'),
+            eyespy_initialized=bioreactor.is_component_initialized('eyespy_adc'))
+        if resolved is None:
+            bioreactor.logger.warning(f"Turbidostat: EKF_OD_CHANNEL '{ekf_ch}' matches no OD measurement or voltage source")
+            return
+        # honour a SENSOR_LABELS override of that column, as Bioreactor.__init__ applied it
+        od_channel = next((lbl for k, lbl, _c in getattr(bioreactor, 'optical_columns', []) if k == resolved[0]), resolved[1])
 
     # --- Read latest OD from CSV ---
     if not hasattr(bioreactor, 'out_file_path'):

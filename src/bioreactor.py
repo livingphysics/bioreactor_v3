@@ -114,6 +114,19 @@ class Bioreactor():
 
         # Component initialization tracking
         self._initialized = {}
+
+        # Optical plan: named voltage sources + canonical OD measurements (see optics.py).
+        # Resolved BEFORE component init so init_optical_density / init_eyespy_adc build
+        # their channel/board maps from it. Legacy configs (OD_ADC_CHANNELS / EYESPY_ADC)
+        # resolve to exactly the old names and CSV columns.
+        from .optics import resolve_optical_config, describe as _describe_optics
+        self.optics = resolve_optical_config(config)
+        for _err in self.optics.errors:
+            self.logger.error(f"Optical config: {_err}")
+        for _w in self.optics.warnings:
+            self.logger.warning(f"Optical config: {_w}")
+        if self.optics.has_optics():
+            self.logger.info(f"Optical plan: {_describe_optics(self.optics)}")
         
         # Initialize components based on config
         if config and hasattr(config, 'INIT_COMPONENTS'):
@@ -136,30 +149,28 @@ class Bioreactor():
             
             # Get enabled components
             init_components = getattr(config, 'INIT_COMPONENTS', {})
-            od_enabled = init_components.get('optical_density', False)
-            eyespy_enabled = init_components.get('eyespy_adc', False)
-            
-            # Auto-populate OD channel labels from OD_ADC_CHANNELS only if optical_density is enabled
-            if od_enabled and hasattr(config, 'OD_ADC_CHANNELS'):
-                for ch_name in config.OD_ADC_CHANNELS.keys():
-                    # Check if label already exists (try various key formats)
-                    od_key = f"od_{ch_name.lower()}"
-                    if (od_key not in config.SENSOR_LABELS and 
-                        f"od_{ch_name}" not in config.SENSOR_LABELS and
-                        f"od_{ch_name.upper()}" not in config.SENSOR_LABELS):
-                        # Auto-generate label: OD_<ChannelName>_V
-                        config.SENSOR_LABELS[od_key] = f"OD_{ch_name}_V"
-            
-            # Auto-populate eyespy ADC labels from EYESPY_ADC only if eyespy_adc is enabled
-            if eyespy_enabled and hasattr(config, 'EYESPY_ADC'):
-                for board_name in config.EYESPY_ADC.keys():
-                    raw_key = f"eyespy_{board_name}_raw"
-                    voltage_key = f"eyespy_{board_name}_voltage"
-                    if raw_key not in config.SENSOR_LABELS:
-                        config.SENSOR_LABELS[raw_key] = f"Eyespy_{board_name}_raw"
-                    if voltage_key not in config.SENSOR_LABELS:
-                        config.SENSOR_LABELS[voltage_key] = f"Eyespy_{board_name}_V"
-            
+
+            # Optical columns come from the resolved plan: OD measurements first, then voltage
+            # sources no measurement consumes. Legacy configs yield exactly the old keys and
+            # labels (od_<chan> -> OD_<chan>_V, eyespy_<b>_raw/_voltage -> Eyespy_<b>_raw/_V).
+            # A label the user already put in SENSOR_LABELS (under the key or, for legacy adc
+            # channels, its historical alternative spellings) is kept as an override.
+            self.optical_columns = []          # [(sensor_data key, CSV label, component)]
+            for _key, _label, _component in self.optics.logged_columns():
+                _alts = [_key]
+                if self.optics.legacy and _key.startswith('od_'):
+                    _chan = _key[3:]
+                    _alts += [f"od_{_chan}", f"od_{_chan.upper()}"]
+                    for _src in self.optics.sources.values():
+                        if _src.kind == 'adc' and (_src.legacy_name or '').lower() == _chan:
+                            _alts.append(f"od_{_src.legacy_name}")
+                _existing = next((config.SENSOR_LABELS[a] for a in _alts if a in config.SENSOR_LABELS), None)
+                if _existing is None:
+                    config.SENSOR_LABELS[_key] = _label
+                    _existing = _label
+                self.optical_columns.append((_key, _existing, _component))
+            _optical_component = {k: c for k, _l, c in self.optical_columns}
+
             # Auto-populate temperature sensor label if temp_sensor is enabled
             # Also remove it if disabled (to clean up any leftover entries)
             temp_enabled = init_components.get('temp_sensor', False)
@@ -247,7 +258,9 @@ class Bioreactor():
                     component_name = 'ambient_temp'
                 elif key == 'peltier_current':
                     component_name = 'peltier_current'
-                elif key.startswith('od_'):
+                elif key in _optical_component:
+                    component_name = _optical_component[key]
+                elif key.startswith('od_') or key.startswith('voltage_'):
                     component_name = 'optical_density'
                 elif key.startswith('eyespy_'):
                     component_name = 'eyespy_adc'
