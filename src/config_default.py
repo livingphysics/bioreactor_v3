@@ -47,8 +47,9 @@ class Config:
     # Labels are auto-populated in bioreactor.py based on INIT_COMPONENTS.
     # Only add custom labels here if you want to override the defaults.
     # Possible keys: 'temperature', 'co2', 'o2', 'ambient_temp', 'peltier_current';
-    # 'od_<channel>' (e.g. od_135, od_ref, od_90);
-    # 'eyespy_<board>_raw', 'eyespy_<board>_voltage' (e.g. eyespy1_raw, eyespy1_voltage);
+    # 'od_45', 'od_ref', 'od_90', 'od_135' (the OD measurements below);
+    # 'voltage_<source>' (a voltage source no OD measurement consumes);
+    # legacy configs: 'od_<channel>', 'eyespy_<board>_raw', 'eyespy_<board>_voltage';
     # 'peltier_duty', 'peltier_forward'; 'ring_light_R', 'ring_light_G', 'ring_light_B'.
     SENSOR_LABELS: dict = {}
 
@@ -75,37 +76,47 @@ class Config:
     RING_LIGHT_COUNT: int = 32  # Number of LEDs in the ring
     RING_LIGHT_SPI_SPEED: int = 800  # SPI speed in kHz
 
-    # Optical Density (OD) Configuration (ADS1115 ADC)
-    OD_ADC_CHANNELS: dict[str, str] = {
-        '135': 'A0',
-        'Ref': 'A1',
-        '90': 'A2',
-    }  # Dictionary mapping channel names to ADS1115 pins (A0-A3)
-
-    # EKF OD Channel Configuration
-    # Channel name used by both the standalone EKF and turbidostat EKF.
-    # Must match a key from OD_ADC_CHANNELS (e.g. '135', '90') or an eyespy board name.
-    # When eyespy is active, reads 'eyespy_{name}_voltage'; when OD is active, reads 'od_{name}'.
-    # The turbidostat EKF resolves this to a CSV column label (e.g. 'OD_135_V') automatically.
-    EKF_OD_CHANNEL: str = '135'
-    
-    # Eyespy ADC Configuration (ADS1114, based on pioreactor pattern)
-    # Supports multiple eyespy boards, each at a different I2C address
-    # Each eyespy board is a single-channel ADS1114 ADC
-    EYESPY_ADC: dict = {
-        'ref': {
-            'i2c_address': 0x49,  # I2C address (default for eyespy/pd2)
-            'i2c_bus': 1,  # I2C bus number (typically 1 for /dev/i2c-1)
-            'gain': 1.0,  # PGA gain: 2/3, 1.0, 2.0, 4.0, 8.0, 16.0 (default: 1.0 = ±4.096 V)
-        },
-        # Add more eyespy boards as needed:
-        'sct1': {
-            'i2c_address': 0x4a,  # Different I2C address
-            'i2c_bus': 1,
-            'gain': 1.0,
-        },
+    # ------------------------------------------------------------------------
+    # Optical inputs: VOLTAGE SOURCES + OD MEASUREMENTS  (see src/optics.py, docs/optics.md)
+    # ------------------------------------------------------------------------
+    # Every photodiode/ADC input the rig has, under a name of YOUR choosing. A source is
+    # either one ADS1115 channel (kind 'adc', A0-A3; hardware component 'optical_density')
+    # or one ADS1114 eyespy board (kind 'eyespy'; hardware component 'eyespy_adc').
+    # Each source can be read by name (io.read_voltage), gets its own API endpoint
+    # (GET /api/voltage/<name>) and, when no OD measurement consumes it, its own CSV
+    # column '<name>_V'. Shorthand strings work too: 'adc:A0', 'eyespy:0x49'.
+    VOLTAGE_SOURCES: dict = {
+        'pd_135': {'kind': 'adc', 'channel': 'A0'},
+        'pd_ref': {'kind': 'adc', 'channel': 'A1'},
+        'pd_90':  {'kind': 'adc', 'channel': 'A2'},
+        # eyespy boards (enable INIT_COMPONENTS['eyespy_adc'] to use them):
+        'eyespy_ref': {'kind': 'eyespy', 'i2c_address': 0x49, 'i2c_bus': 1, 'gain': 1.0},
+        'eyespy_sct': {'kind': 'eyespy', 'i2c_address': 0x4a, 'i2c_bus': 1, 'gain': 1.0},
     }
-    
+
+    # The four canonical OD measurements. Each is enabled or not and, when enabled, fed by
+    # ONE voltage source of either kind. Enabled measurements are IR-gated, logged as
+    # OD_<x>_V (OD_45_V, OD_ref_V, OD_90_V, OD_135_V), served at GET /api/od/state and are
+    # what the dashboard plots. Shorthands: 'pd_135' (enabled, that source), False, True
+    # (enabled, source 'pd_<x>').
+    OD_MEASUREMENTS: dict = {
+        'OD_45':  {'enabled': False},
+        'OD_ref': {'enabled': True, 'source': 'pd_ref'},
+        'OD_90':  {'enabled': True, 'source': 'pd_90'},
+        'OD_135': {'enabled': True, 'source': 'pd_135'},
+    }
+
+    # LEGACY form (still honoured when VOLTAGE_SOURCES / OD_MEASUREMENTS are absent):
+    #   OD_ADC_CHANNELS = {'135': 'A0', 'Ref': 'A1', '90': 'A2'}  -> columns OD_135_V, OD_Ref_V, OD_90_V
+    #   EYESPY_ADC = {'ref': {'i2c_address': 0x49, 'i2c_bus': 1, 'gain': 1.0}, ...}
+    #                                                            -> columns Eyespy_ref_raw, Eyespy_ref_V
+    # Existing per-rig config.py files keep working with their column names unchanged.
+
+    # EKF OD channel: an OD measurement ('OD_135'), its suffix ('135', 'ref') or a voltage
+    # source name. Used by the standalone EKF in measure_and_record_sensors and by
+    # turbidostat_ekf_mode (which resolves it to the CSV column automatically).
+    EKF_OD_CHANNEL: str = 'OD_135'
+
     # CO2 Sensor Configuration
     # CO2_SENSOR_TYPE options:
     #   - 'sensair' or'sensair_k33' (default): Senseair K33 sensor over I2C (default address: 0x68)

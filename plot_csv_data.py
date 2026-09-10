@@ -456,7 +456,7 @@ def plot_csv_data(csv_file_path: str = None, update_interval: float = 5.0, use_r
             elif header_lower.startswith('ekf_'):
                 # EKF estimate columns (ekf_od_est, ekf_growth_rate, ekf_doubling_time_s)
                 groups.setdefault('EKF', []).append(header)
-            elif 'od' in header_lower or 'eyespy' in header_lower:
+            elif 'od' in header_lower or 'eyespy' in header_lower or header_lower.endswith('_v'):
                 # Group both OD and eyespy voltage columns together
                 # Only include voltage columns (not raw ADC values)
                 if 'raw' not in header_lower:

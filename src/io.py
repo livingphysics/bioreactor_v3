@@ -394,31 +394,71 @@ def _i2c_retry(op, logger, what, attempts: int = 2):
     return None
 
 
-def read_voltage(bioreactor, channel_name: str) -> Optional[float]:
+def read_voltage(bioreactor, channel_name: str, quiet: bool = False) -> Optional[float]:
     """
-    Read voltage from an optical density ADC channel.
-    
+    Read the voltage of a named voltage source: an ADS1115 channel (component
+    'optical_density') or an eyespy ADS1114 board (component 'eyespy_adc').
+
     Args:
         bioreactor: Bioreactor instance
-        channel_name: Name of the channel (e.g., 'Trx', 'Ref', 'Sct')
-        
+        channel_name: a VOLTAGE_SOURCES name; for legacy configs an OD_ADC_CHANNELS key
+                      (e.g. '135', 'Ref') or an EYESPY_ADC board name
+        quiet: suppress the "not initialized / not found" warnings
+
     Returns:
-        float: Voltage reading in volts, or None if error
+        float: Voltage reading in volts, or None if unknown / not initialized / error
     """
-    if not bioreactor.is_component_initialized('optical_density'):
-        bioreactor.logger.warning("Optical density sensor not initialized")
+    log = (lambda _m: None) if quiet else bioreactor.logger.warning
+    od_channels = getattr(bioreactor, 'od_channels', None) or {}
+    eyespy_boards = getattr(bioreactor, 'eyespy_boards', None) or {}
+    if channel_name in od_channels:
+        if not bioreactor.is_component_initialized('optical_density'):
+            log("Optical density sensor not initialized")
+            return None
+        return _i2c_retry(lambda: od_channels[channel_name].voltage,
+                          bioreactor.logger, f"voltage from channel {channel_name}")
+    if channel_name in eyespy_boards:
+        if not bioreactor.is_component_initialized('eyespy_adc'):
+            log("Eyespy ADC not initialized")
+            return None
+        return read_eyespy_voltage(bioreactor, channel_name)
+    if not bioreactor.is_component_initialized('optical_density') and \
+            not bioreactor.is_component_initialized('eyespy_adc'):
+        log("Optical density sensor not initialized")
         return None
-    
-    if not hasattr(bioreactor, 'od_channels'):
-        bioreactor.logger.warning("OD channels not available")
+    log(f"Voltage source '{channel_name}' not found. Available: {list(od_channels) + list(eyespy_boards)}")
+    return None
+
+
+def read_od(bioreactor, od_name: str) -> Optional[float]:
+    """
+    Read one canonical OD measurement (OD_45 / OD_ref / OD_90 / OD_135) as an un-gated
+    voltage from the source it is mapped to. For an IR-gated reading use measure_od().
+
+    Returns:
+        float: volts, or None if the measurement is disabled or its source unavailable
+    """
+    plan = getattr(bioreactor, 'optics', None)
+    if plan is None or od_name not in plan.od:
+        bioreactor.logger.warning(f"OD measurement '{od_name}' is not enabled. Enabled: {list(plan.od) if plan else []}")
         return None
-    
-    if channel_name not in bioreactor.od_channels:
-        bioreactor.logger.warning(f"OD channel '{channel_name}' not found. Available: {list(bioreactor.od_channels.keys())}")
-        return None
-    
-    return _i2c_retry(lambda: bioreactor.od_channels[channel_name].voltage,
-                      bioreactor.logger, f"voltage from channel {channel_name}")
+    return read_voltage(bioreactor, plan.od[od_name])
+
+
+def read_all_voltages(bioreactor) -> Dict[str, Optional[float]]:
+    """
+    Un-gated voltage of every configured voltage source.
+
+    Returns:
+        dict: {source name: volts or None}; sources whose component is not initialized are None
+    """
+    plan = getattr(bioreactor, 'optics', None)
+    if plan is not None and plan.has_optics():
+        names = list(plan.sources)
+    else:
+        names = list((getattr(bioreactor, 'od_channels', None) or {}).keys()) + \
+                list((getattr(bioreactor, 'eyespy_boards', None) or {}).keys())
+    return {name: read_voltage(bioreactor, name, quiet=True) for name in names}
 
 
 def set_led(bioreactor, power: float) -> bool:
@@ -511,12 +551,18 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
         bioreactor: Bioreactor instance
         led_power: LED power level (0-100)
         averaging_duration: Duration in seconds to average readings
-        channel_name: Name of the ADC channel to read, or 'all' to measure all channels (default: 'Trx')
-        
+        channel_name: 'all' to measure every voltage source (ADS1115 channels and eyespy
+                      boards); a voltage-source name of either kind; or an OD measurement
+                      name (OD_45 / OD_ref / OD_90 / OD_135), which reads the source feeding
+                      it. Legacy configs keep the historical single-name behaviour: the name
+                      is read as an ADS1115 channel and every eyespy board rides along.
+                      (The default 'Trx' is historical; callers should pass a name or 'all'.)
+
     Returns:
-        float: Averaged voltage reading for single channel, or None if error
-        dict: Dictionary mapping channel names to averaged voltages when channel_name='all', or None if error
-              Includes both OD channels and eyespy boards (e.g., 'Trx', 'eyespy1', 'eyespy2')
+        dict: {source name: averaged volts} for 'all' — and, for legacy configs with eyespy
+              boards, for any single name too (historical behaviour) — or None if nothing
+              could be read
+        float: the requested source's averaged voltage otherwise, or None if error
     """
     import time
     
@@ -538,21 +584,44 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
             "Reading both while LED is on - ensure they don't interfere with each other."
         )
     
-    # Determine which OD channels to measure
+    # Resolve what to measure. `channel_name` is 'all', a voltage source of either kind
+    # (legacy: an OD_ADC_CHANNELS key or an EYESPY_ADC board name), or an OD measurement
+    # name (OD_45/OD_ref/OD_90/OD_135), which resolves to the source feeding it.
+    plan = getattr(bioreactor, 'optics', None)
+    legacy = plan is None or plan.legacy
+    requested = channel_name
+    if plan is not None and channel_name in plan.od:
+        requested = plan.od[channel_name]
+    want_all = str(channel_name).lower() == 'all'
+    od_channel_names = list((getattr(bioreactor, 'od_channels', None) or {}).keys()) if od_initialized else []
+    eyespy_board_names = list((getattr(bioreactor, 'eyespy_boards', None) or {}).keys()) if eyespy_initialized else []
+
     channels_to_measure = []
-    if od_initialized:
-        if channel_name.lower() == 'all':
-            if not hasattr(bioreactor, 'od_channels') or not bioreactor.od_channels:
+    eyespy_boards = []
+    if legacy:
+        # Historical behaviour, kept exactly: a single name is read as an ADS1115 channel
+        # (an unknown name logs a warning and reads None) and every eyespy board rides along.
+        if want_all:
+            if od_initialized and not od_channel_names:
                 bioreactor.logger.error("No OD channels available")
                 return None
-            channels_to_measure = list(bioreactor.od_channels.keys())
-        else:
-            channels_to_measure = [channel_name]
-    
-    # Get eyespy board names if initialized
-    eyespy_boards = []
-    if eyespy_initialized and hasattr(bioreactor, 'eyespy_boards'):
-        eyespy_boards = list(bioreactor.eyespy_boards.keys())
+            channels_to_measure = od_channel_names
+        elif od_initialized:
+            channels_to_measure = [requested]
+        eyespy_boards = eyespy_board_names
+    elif want_all:
+        channels_to_measure = od_channel_names
+        eyespy_boards = eyespy_board_names
+        if not channels_to_measure and not eyespy_boards:
+            bioreactor.logger.error("No OD channels available")
+            return None
+    elif requested in eyespy_board_names:
+        eyespy_boards = [requested]
+    elif requested in od_channel_names:
+        channels_to_measure = [requested]
+    else:
+        bioreactor.logger.error(f"measure_od: unknown voltage source '{channel_name}'")
+        return None
     
     # Store ring light state and turn it off (dodging) before OD measurement
     ring_light_was_on = False
@@ -635,21 +704,15 @@ def measure_od(bioreactor, led_power: float, averaging_duration: float, channel_
                     f"board {board_name}, avg voltage: {avg_voltage:.4f}V"
                 )
         
-        # Return single value if single channel, dict if all channels
-        if channel_name.lower() == 'all' or eyespy_boards:
-            # Return dict with all results (OD + eyespy)
+        # 'all' returns {source: avg V}; so does any legacy call when eyespy boards rode
+        # along (historical behaviour). Otherwise the requested source's float.
+        if want_all or (legacy and eyespy_boards):
             valid_results = {k: v for k, v in results.items() if v is not None}
             if not valid_results:
                 bioreactor.logger.warning("No valid readings collected for any channel or board")
                 return None
             return valid_results
-        else:
-            # Single channel mode - return float or None
-            if channel_name in results:
-                if results[channel_name] is None:
-                    return None
-                return results[channel_name]
-            return None
+        return results.get(requested)
         
     except Exception as e:
         bioreactor.logger.error(f"Error during OD measurement: {e}")
