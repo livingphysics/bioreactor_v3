@@ -93,8 +93,8 @@ class CO2Control:
                 with self.lock:
                     if not self.active or (self.deadline and self.clock() >= self.deadline):
                         break
-                    now = self.clock()
                     value, acquired = self.read_sample()
+                    now = self.clock()
                     fresh = self.engine.observe(value, acquired, now)
                     pulse = self.engine.propose(now) if fresh else 0.0
                     self.last = {'co2_ppm': value, 'sample_age_s': now-acquired,
