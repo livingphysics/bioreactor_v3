@@ -211,5 +211,13 @@ temporary `src/config.py` if one is missing, so it runs on a fresh clone off a
 Pi. The 14 integration tests need `numpy` (via `src/utils.py`) and **skip**
 rather than fail without it — `pip install numpy` to run the full set.
 
-That is currently the whole suite. The control routines in `utils.py` (PID,
-chemostat modes) and the drivers in `io.py` are untested.
+The CO₂ MPC suite adds `python -m unittest test_co2_mpc test_co2_fit` (the fitter
+test needs NumPy). The older control routines in `utils.py` (PID, chemostat modes)
+and the drivers in `io.py` are untested.
+
+## CO₂ model predictive control
+
+The shared controller supports delayed gas response, leakage and discrete solenoid
+pulses. Run it standalone or through the API's `co2` program command. See
+[setup, calibration and operation](docs/co2_mpc.md). Control is opt-in and requires
+a validated model of the installed rig; illustrative parameters are not calibration.
