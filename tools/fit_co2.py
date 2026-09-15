@@ -20,6 +20,8 @@ def response(t, delay, tau, leak):
 
 
 def fit(t, y, doses, ambient=420):
+    if not math.isfinite(ambient) or ambient < 0:
+        raise ValueError('ambient must be a finite nonnegative ppm value')
     t, y, doses = (np.asarray(v, dtype=float) for v in (t, y, doses))
     if len(t) < 20 or not all(np.all(np.isfinite(v)) for v in (t,y,doses)):
         raise ValueError('at least 20 finite samples required')
@@ -59,7 +61,7 @@ def fit(t, y, doses, ambient=420):
     delays = np.linspace(0,min(600,span/2),13)
     taus = np.geomspace(max(2,dt),max(20,span),14)
     leaks = [0, *np.geomspace(1e-7,0.01,13)]
-    deadtimes = [0] if len(unique)<2 else np.linspace(0,min(unique)*0.9,6)
+    deadtimes = [0] if len(unique)<2 else np.linspace(0,max(unique)*0.9,8)
     for delay in delays:
         for tau in taus:
             for leak in leaks:
@@ -74,7 +76,7 @@ def fit(t, y, doses, ambient=420):
             for sign in (-1,1):
                 params = best[3][:]
                 params[j] += sign*steps[j]
-                if params[0]<0 or params[1]<1 or not 0<=params[2]<=0.02 or not 0<=params[3]<min(unique):
+                if params[0]<0 or params[1]<1 or not 0<=params[2]<=0.02 or not 0<=params[3]<max(unique):
                     continue
                 result = evaluate(*params)
                 if result[0]<best[0]: best=(*result,params)

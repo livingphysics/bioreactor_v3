@@ -7,11 +7,11 @@ from typing import Union, Optional
 
 
 class Config:
+    """Bioreactor configuration"""
+
     # CO2 MPC is opt-in. Supply a validated, rig-specific model after response tests.
     # See docs/co2_mpc.md in bioreactor_v3; no controller starts automatically.
     CO2_MPC = None
-
-    """Bioreactor configuration"""
     
     # Logging Configuration
     LOG_LEVEL: str = 'INFO'

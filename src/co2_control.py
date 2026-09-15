@@ -67,6 +67,8 @@ class CO2Control:
             self._thread.start()
 
     def stop(self, owner=None, *, join=True):
+        if owner is None:
+            self._stop.set()  # interrupt wait/optimization before waiting for its lock
         with self.lock:
             if owner is not None and self.owner != owner:
                 return
@@ -100,6 +102,12 @@ class CO2Control:
                     self.last = {'co2_ppm': value, 'sample_age_s': now-acquired,
                                  **self.engine.last_plan, 'commanded_pulse_s': pulse}
                     if pulse:
+                        if self._stop.is_set():
+                            break
+                        if self.clock()-acquired > self.engine.settings.stale_s:
+                            raise ValueError('CO2 sample became stale during optimization')
+                        if self.deadline and self.clock()+pulse >= self.deadline:
+                            break
                         # No solver or sensor reads occur while the valve is energized.
                         start = self.clock()
                         self.set_valve(True)
