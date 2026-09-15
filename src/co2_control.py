@@ -53,7 +53,7 @@ class CO2Control:
                 self.deadline = self.clock()+duration_s if duration_s else None
                 return
             # A restart loses unobserved gas state. Refuse until it has mixed.
-            if self._last_stop is not None and self.clock()-self._last_stop < model.delay_s+5*model.mixing_s:
+            if self._last_stop is not None and self.clock()-self._last_stop < model.settling_s(5):
                 raise RuntimeError('wait for prior injected gas to settle before restarting CO2 control')
             value, measured_at = self.read_sample()
             engine = PulseMPC(model, settings)

@@ -31,6 +31,46 @@ already injected. A lower target is reached only through leakage/consumption.
 Concentration-dependent flow, gas uptake, circulation changes and regulator
 changes can invalidate a model fitted at one operating condition.
 
+### Optional second delayed mixing path
+
+`GasModel` also accepts `slow_fraction` (0–1), `slow_delay_s` and `slow_mixing_s`.
+An injection splits between the original path and this second path; both feed
+the same measured compartment with the same loss coefficient. This can describe
+a rapid rise followed by slower gas arrival. It does not identify the physical
+cause of a plateau. The default fraction is zero, preserving existing profiles.
+
+Fit and compare candidates using NumPy:
+
+```sh
+python -m tools.fit_co2_delayed measurements.csv --output two-path.json
+python -m tools.fit_co2_delayed measurements.csv --single-path --output one-path.json
+python -m tools.simulate_co2 two-path.json --output simulations.json
+```
+
+Fit on an earlier section, then predict held-out observations and independent
+pulses. A better fit to one pulse is insufficient to validate the extra path.
+The fitter assumes zero valve dead time and includes an unknown initial fast
+mixing amount; resolve those assumptions with repeated measured doses.
+
+The horizon and restart settling guard cover **both** enabled paths. Long horizons
+can use `prediction_step_s` and `planning_interval_s` for coarser prediction and
+future valve scheduling while retaining the original sensor cadence and freshness
+limit. Prediction step must lie between sensor cadence and minimum pulse interval;
+planning interval cannot be shorter than the minimum pulse interval. The solver
+still limits prediction points to 1,000 and planned moves to 60.
+
+`tracking_time_s` optionally discounts tracking error farther into the future;
+zero retains equal weighting. This helps a long transport horizon avoid delaying
+near-term correction. The concentration ceiling is checked over the **entire**
+horizon regardless of that discount. Set these values through simulation and
+independent rig validation; no new profile is enabled automatically.
+
+The controller also faults if fresh timestamped values remain within
+`stuck_tolerance_ppm` (default 30 ppm) for `stuck_window_s` (600 s) while issued
+gas predicts a rise of at least `stuck_expected_rise_ppm` (1,000 ppm). This detects
+some frozen-value failures, not every possible sensor failure. Incorrect models
+or valve failures can trigger the same fault and require investigation.
+
 ## Identify the rig before enabling control
 
 1. Keep flow, stirring, tubing, gas regulator and reactor volume fixed. Start from
@@ -47,7 +87,9 @@ changes can invalidate a model fitted at one operating condition.
    assumes external CO₂ is 420 ppm unless `--ambient` is supplied, and reports
    unresolved decay/pulse-resolution warnings. `dose_s` must be actual energized
    duration for precise calibration; the API measurement utility records requested
-   durations, so account for closure latency when assessing short pulses.
+   durations on older versions. The updated API utility requires completed-write
+   counters and saves requested duration separately; independently verify GPIO
+   and mechanical timing when assessing short pulses.
 5. Validate on separate pulses and near the intended operating range. Review the
    fit, residuals, minimum pulse, gain margin and predicted overshoot before setting
    `validated: true`. The fitter deliberately never does this automatically.
@@ -108,7 +150,7 @@ With a validated profile installed and service restarted:
 - `GET /api/co2/controller`: active state, owner, fault, target and last forecast.
 - `/api/state` also includes `co2_control`; detailed decisions go to the API log.
 
-After API startup/manual dosing/stopping, wait delay + five mixing constants
+After API startup/manual dosing/stopping, wait each enabled path's delay + five mixing constants
 before restarting control, because the prior pending-gas state is unknown. Live
 setpoint changes by the same owner preserve that state. Manual ON is rejected
 while MPC owns the valve; immediate OFF always stops it. A timed OFF that would

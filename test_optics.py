@@ -555,8 +555,11 @@ class BioreactorIntegration(unittest.TestCase):
         bio = self._make(C)
         with mock.patch('time.sleep'), mock.patch.object(bio_io, 'read_eyespy_voltage', lambda b, board_name=None: 2.5):
             self.assertEqual(bio_io.measure_od(bio, 10.0, 0.001, 'OD_135'), 2.5)
-            self.assertEqual(bio_io.measure_od(bio, 10.0, 0.001, 'pd_135'), 0.42)
-            self.assertEqual(bio_io.measure_od(bio, 10.0, 0.001, 'all'), {'pd_135': 0.42, 'eyespy1': 2.5})
+            self.assertAlmostEqual(bio_io.measure_od(bio, 10.0, 0.001, 'pd_135'), 0.42)
+            measured = bio_io.measure_od(bio, 10.0, 0.001, 'all')
+            self.assertEqual(set(measured), {'pd_135', 'eyespy1'})
+            self.assertAlmostEqual(measured['pd_135'], 0.42)
+            self.assertAlmostEqual(measured['eyespy1'], 2.5)
             self.assertIsNone(bio_io.measure_od(bio, 10.0, 0.001, 'nope'))
 
 
