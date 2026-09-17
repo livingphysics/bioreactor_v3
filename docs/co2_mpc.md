@@ -116,6 +116,11 @@ Stop the API and other valve writers first. Copy the normal rig config to
 python -m examples.co2_mpc --target 50000 --duration 3600 --log co2-run.jsonl
 ```
 
+Use `--duration 0` to run until stopped when the profile permits indefinite control.
+The API equivalent is `{"target_percent":2,"duration_s":0}`. Status reports
+`indefinite: true` and `remaining_s: null`; all concentration, sensor, pulse and
+ownership checks still apply. A restart does not automatically resume control.
+
 Only I²C, the CO₂ sensor and relays initialize; pumps/Peltier are not initialized.
 Ctrl-C, SIGTERM, expiry, invalid/stale readings, timing overruns and exceptions
 stop the worker and de-energize the valve. GPIO write failures become faults.
@@ -162,8 +167,8 @@ to a rig-specific profile. These are example trial limits, not a calibration.
 The regular model, concentration ceiling, pulse, freshness and restart-settling
 checks still apply. Supply a finite duration to the direct API endpoint or
 standalone script. A target above the trial maximum, an excessive/absent duration,
-or an indefinite program start is refused. Updating an active trial cannot extend
-its original deadline. Status distinguishes `trial_mode` from `model_validated`
+or an indefinite program start is refused by default. Updating a timed trial
+with another positive duration cannot extend its original deadline. Status distinguishes `trial_mode` from `model_validated`
 and reports `remaining_s` and `restart_wait_s`.
 
 Every fresh measurement corrects the observer's concentration estimate before
@@ -171,6 +176,17 @@ the next pulse is chosen. Previously commanded pulses remain in the prediction
 until their delayed effect arrives. Optional uncertainty learning updates pulse
 gain within a fixed safety bound; delay and leakage are not refitted online.
 Assess independent responses before marking the model validated.
+
+### Explicit indefinite operation
+
+Validated profiles allow indefinite control. For a provisional profile, enable it
+explicitly with `CO2_MPC['trial']['allow_indefinite'] = True`; this does **not** mark
+the model validated or change its target, concentration, pulse or sensor limits.
+`max_duration_s` still caps positive durations. Zero (or the internal/program
+`None` duration) then removes the deadline. Changing an active run to zero retains
+its observer and pending doses; changing from indefinite to a positive duration
+starts a timer. Indefinite control continues after browser disconnection, stops on
+Stop, shutdown or a latched fault, and is not automatically resumed after restart.
 
 ## Brief measurement gaps
 

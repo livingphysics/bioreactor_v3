@@ -55,13 +55,31 @@ class CO2Control:
         config = (self.profile or {}).get('uncertainty')
         return ResponseUncertainty(**config) if config is not None else None
 
+    def allows_indefinite(self):
+        profile = self.profile or {}
+        trial = profile.get('trial', {})
+        return (profile.get('validated') is True or
+                (isinstance(trial, dict) and trial.get('enabled') is True
+                 and trial.get('allow_indefinite') is True))
+
+    def validate_duration(self, duration_s):
+        # Zero is the public indefinite sentinel; None is used internally/programs.
+        if duration_s is not None:
+            duration_s = finite(duration_s, 'duration')
+            if duration_s == 0:
+                duration_s = None
+        if self.profile.get('validated') is not True:
+            if duration_s is None:
+                if not self.allows_indefinite():
+                    raise ValueError('Indefinite CO2 control requires trial.allow_indefinite=true')
+            elif duration_s > self.profile['trial']['max_duration_s']:
+                raise ValueError('CO2 trial duration exceeds its configured maximum')
+        return duration_s
+
     def start(self, target, owner='api', duration_s=None):
         model, settings = self.validate(target)
-        if duration_s is not None:
-            finite(duration_s, 'duration', strict=True)
+        duration_s = self.validate_duration(duration_s)
         trial_mode = self.profile.get('validated') is not True
-        if trial_mode and (duration_s is None or duration_s > self.profile['trial']['max_duration_s']):
-            raise ValueError('CO2 trial requires a finite duration within its configured maximum')
         with self.lock:
             if self._thread and self._thread.is_alive() and not self.active:
                 raise RuntimeError('CO2 worker is still stopping')
@@ -71,8 +89,11 @@ class CO2Control:
                 # Setpoint changes preserve the observer and in-flight gas history.
                 self.engine.settings = replace(self.engine.settings, target_ppm=target)
                 deadline = self.clock()+duration_s if duration_s else None
-                # Repeated requests must never extend an already running trial.
-                self.deadline = min(self.deadline, deadline) if trial_mode else deadline
+                # Timed trial updates cannot extend a timed deadline. An explicitly
+                # permitted indefinite request removes it; adding a timer bounds it.
+                self.deadline = (min(self.deadline, deadline)
+                                 if trial_mode and self.deadline is not None and deadline is not None
+                                 else deadline)
                 return
             # A restart loses unobserved gas state. Refuse until it has mixed.
             if self._last_stop is not None and self.clock()-self._last_stop < model.settling_s(5):
@@ -122,6 +143,7 @@ class CO2Control:
                     pass
             return {'active': self.active, 'owner': self.owner, 'fault': self.fault,
                     'configured': validated or trial_mode,
+                    'indefinite': self.active and self.deadline is None,
                     'model_validated': validated, 'trial_mode': trial_mode,
                     'remaining_s': max(0.0, self.deadline-self.clock()) if self.active and self.deadline else None,
                     'restart_wait_s': restart_wait,
@@ -225,7 +247,7 @@ def run_standalone(config, target, duration_s, log_path):
     import signal
     from .bioreactor import Bioreactor
     from . import io
-    finite(duration_s, 'duration', strict=True)
+    finite(duration_s, 'duration')
     class GasOnly(type(config)):
         INIT_COMPONENTS = {'i2c': True, 'co2_sensor': True, 'relays': True}
     cfg = GasOnly()
@@ -250,8 +272,7 @@ def run_standalone(config, target, duration_s, log_path):
             for sig in (signal.SIGINT, signal.SIGTERM):
                 old[sig] = signal.signal(sig, lambda *_: done.set())
             controller.start(target, owner='standalone', duration_s=duration_s)
-            end = time.monotonic()+duration_s
-            while controller.active and time.monotonic() < end and not done.wait(0.5):
+            while controller.active and not done.wait(0.5):
                 pass
             controller.stop()
             if controller.fault:
