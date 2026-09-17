@@ -72,6 +72,13 @@ INIT_COMPONENTS = {
 
 Settings worth knowing before you drive hardware:
 
+**Senseair K33 rigs require a dedicated CO₂ bus.** Use bus 3 on GPIO23/24,
+separate main sensor power and a common ground; keep Atlas O₂ and optics on
+bus 1. Configure the Pi boot overlay as well as the Python bus setting. See
+the [K33 wiring and setup guide](docs/senseair_k33.md). With
+`CO2_SENSOR_I2C_BUS = None`, the driver selects bus 3 for K33 and bus 1 for Atlas;
+existing explicit bus numbers still override this default.
+
 | Setting | Default | Why it matters |
 |---|---|---|
 | `PELTIER_MAX_DUTY_HEAT` | 70.0 | hardware safety ceiling for heating |
@@ -211,5 +218,10 @@ temporary `src/config.py` if one is missing, so it runs on a fresh clone off a
 Pi. The 14 integration tests need `numpy` (via `src/utils.py`) and **skip**
 rather than fail without it — `pip install numpy` to run the full set.
 
-That is currently the whole suite. The control routines in `utils.py` (PID,
-chemostat modes) and the drivers in `io.py` are untested.
+## CO₂ model predictive control
+
+The shared controller supports delayed gas response, leakage and discrete solenoid
+pulses. Run it standalone or through the API's `co2` program command. See
+[setup and operation](docs/co2_mpc.md). Control is opt-in and requires
+a rig-specific validated model or an explicitly bounded provisional profile.
+Illustrative parameters are not calibration.

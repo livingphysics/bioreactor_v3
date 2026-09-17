@@ -8,6 +8,12 @@ from typing import Union, Optional
 
 class Config:
     """Bioreactor configuration"""
+
+    # CO2 MPC is opt-in. Supply a validated, rig-specific model after response tests.
+    # See docs/co2_mpc.md in bioreactor_v3; no controller starts automatically.
+    # Optional profile["uncertainty"] enables scenario planning and bounded gain learning.
+    # Omit it for legacy planning; see the commissioning example in the same docs.
+    CO2_MPC = None
     
     # Logging Configuration
     LOG_LEVEL: str = 'INFO'
@@ -119,12 +125,15 @@ class Config:
 
     # CO2 Sensor Configuration
     # CO2_SENSOR_TYPE options:
-    #   - 'sensair' or'sensair_k33' (default): Senseair K33 sensor over I2C (default address: 0x68)
+    #   - 'sensair' or 'sensair_k33': Senseair K33 on a dedicated I2C bus (address 0x68)
     #   - 'atlas' or 'atlas_i2c': Atlas Scientific CO2 sensor over I2C using atlas_i2c library (default address: 0x69)
     # Enable/disable via INIT_COMPONENTS['co2_sensor']
     CO2_SENSOR_TYPE: str = 'atlas_i2c'
     CO2_SENSOR_I2C_ADDRESS: Optional[int] = None  # I2C address for CO2 sensor (None = use type-specific default: 0x68 for sensair_k33, 0x69 for atlas)
-    CO2_SENSOR_I2C_BUS: int = 1  # I2C bus number (typically 1 for /dev/i2c-1)
+    # None selects bus 3 for Senseair K33, bus 1 for Atlas. An integer overrides it.
+    # K33 requires a separate bus: GPIO23 SDA / GPIO24 SCL and a boot overlay.
+    # See docs/senseair_k33.md for wiring, separate power and setup.
+    CO2_SENSOR_I2C_BUS: Optional[int] = None
     
     # O2 Sensor Configuration (Atlas Scientific)
     # Enable/disable via INIT_COMPONENTS['o2_sensor']

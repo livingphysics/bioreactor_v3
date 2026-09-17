@@ -707,8 +707,11 @@ def init_co2_sensor(bioreactor, config):
     """
     try:
         # Get CO2 sensor configuration from config
-        co2_i2c_bus = getattr(config, 'CO2_SENSOR_I2C_BUS', 1)
         co2_type = getattr(config, 'CO2_SENSOR_TYPE', 'sensair_k33').lower()
+        co2_i2c_bus = getattr(config, 'CO2_SENSOR_I2C_BUS', None)
+        if co2_i2c_bus is None:
+            # Keep the K33 off the Atlas/optics bus; see docs/senseair_k33.md.
+            co2_i2c_bus = 3 if co2_type.startswith('sensair') else 1
         
         # Set default I2C address based on sensor type if not specified
         co2_i2c_address = getattr(config, 'CO2_SENSOR_I2C_ADDRESS', None)
@@ -758,7 +761,8 @@ def init_co2_sensor(bioreactor, config):
                     else _i2c_device_present)
         if not _present(co2_i2c_bus, co2_i2c_address):
             error_msg = (f"CO2 sensor not responding at {hex(co2_i2c_address)} on bus "
-                         f"{co2_i2c_bus} (check wiring/address); refusing to initialize")
+                         f"{co2_i2c_bus} (check wiring/address and that /dev/i2c-"
+                         f"{co2_i2c_bus} exists); refusing to initialize")
             logger.error(error_msg)
             return {'initialized': False, 'error': error_msg}
 
@@ -1134,4 +1138,3 @@ COMPONENT_REGISTRY = {
     'pumps': init_pumps,
     'relays': init_relays,
 }
-
