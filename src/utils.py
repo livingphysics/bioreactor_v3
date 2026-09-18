@@ -428,6 +428,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             for key, value in bioreactor.ekf_estimates.items():
                 csv_row[key] = value
 
+        bioreactor.csv_write_error = None
         try:
             # Only write fields that exist in fieldnames to avoid errors
             if hasattr(bioreactor, 'fieldnames'):
@@ -438,6 +439,7 @@ def measure_and_record_sensors(bioreactor, elapsed: Optional[float] = None, led_
             if hasattr(bioreactor, 'out_file'):
                 bioreactor.out_file.flush()
         except Exception as e:
+            bioreactor.csv_write_error = str(e)
             bioreactor.logger.error(f"Error writing to CSV: {e}")
 
     # Build log message dynamically (only include initialized sensors)
