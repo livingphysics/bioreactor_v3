@@ -33,6 +33,52 @@ class CO2Control:
         self._last_valid_at = None
         self._recovering = False
         self._recovery_count = 0
+        self.history = None
+
+    def enable_history(self, path, identity=None, *, boot_id=None):
+        """Enable once, with control stopped; the file is exclusively owned."""
+        from .co2_history import DoseHistory
+        with self.lock:
+            if self.active or self.history:
+                raise RuntimeError('dose history must be enabled before starting control')
+            history = DoseHistory(path, self.profile, clock=self.clock,
+                                  identity=identity, boot_id=boot_id)
+            try:
+                self.set_valve(False)
+                history.load_after_closure()
+            except Exception:
+                history.close()
+                raise
+            self.history = history
+
+    def close_history(self):
+        with self.lock:
+            if self.active or (self._thread and self._thread.is_alive()):
+                raise RuntimeError('stop CO2 control before releasing its history')
+            if self.history:
+                self.history.close()
+
+    def external_dose(self):
+        """Call before a manual/untracked ON; never authorize it on failed storage."""
+        with self.lock:
+            if self.history:
+                self.history.begin(self.engine, external=True)
+            self._last_stop = self.clock()
+
+    def external_closed(self):
+        """Caller has confirmed OFF with no pending manual timer."""
+        with self.lock:
+            if self.history and self.history.state['pending'] == 'external':
+                self.history.quarantine('manual dose: settling from confirmed closure')
+                self.engine = None
+
+    def _restart_wait(self):
+        if self.history:
+            return self.history.wait_s()
+        if self._last_stop is not None and self.profile:
+            return max(0.0, GasModel(**self.profile['model']).settling_s(5)
+                       - (self.clock()-self._last_stop))
+        return 0.0
 
     def validate(self, target):
         if not isinstance(self.profile, dict):
@@ -95,11 +141,14 @@ class CO2Control:
                                  if trial_mode and self.deadline is not None and deadline is not None
                                  else deadline)
                 return
-            # A restart loses unobserved gas state. Refuse until it has mixed.
-            if self._last_stop is not None and self.clock()-self._last_stop < model.settling_s(5):
+            if self.history:
+                self.history.assert_ready()
+            elif self._restart_wait():
                 raise RuntimeError('wait for prior injected gas to settle before restarting CO2 control')
             value, measured_at = self.read_sample()
             engine = make_controller(model, settings, self._uncertainty())
+            if self.history:
+                self.history.restore(engine)
             engine.observe(value, measured_at, self.clock())
             self.set_valve(False)
             self.engine, self.owner = engine, owner
@@ -125,6 +174,12 @@ class CO2Control:
             if was_active:
                 self._last_stop = self.clock()
             self.set_valve(False)
+            if self.history:
+                try:
+                    self.external_closed()
+                    self.history.checkpoint(self.engine)
+                except Exception as e:
+                    self.fault = str(e)  # OFF succeeded; storage must not prevent cleanup
             thread = self._thread
         if join and thread and thread is not threading.current_thread():
             thread.join(timeout=3)
@@ -135,18 +190,17 @@ class CO2Control:
             trial = (self.profile or {}).get('trial', {})
             trial_mode = not validated and isinstance(trial, dict) and trial.get('enabled') is True
             restart_wait = 0.0
-            if self._last_stop is not None and self.profile:
-                try:
-                    restart_wait = max(0.0, GasModel(**self.profile['model']).settling_s(5)
-                                       - (self.clock()-self._last_stop))
-                except (KeyError, TypeError, ValueError):
-                    pass
+            try:
+                restart_wait = self._restart_wait()
+            except (KeyError, TypeError, ValueError):
+                pass
             return {'active': self.active, 'owner': self.owner, 'fault': self.fault,
                     'configured': validated or trial_mode,
                     'indefinite': self.active and self.deadline is None,
                     'model_validated': validated, 'trial_mode': trial_mode,
                     'remaining_s': max(0.0, self.deadline-self.clock()) if self.active and self.deadline else None,
                     'restart_wait_s': restart_wait,
+                    'dose_history': self.history.status() if self.history else {'enabled': False},
                     'measurement_paused': self.active and self._recovering,
                     'recovery_samples': self._recovery_count,
                     'last_valid_age_s': (max(0.0, self.clock()-self._last_valid_at)
@@ -212,6 +266,13 @@ class CO2Control:
                             raise ValueError('CO2 sample became stale during optimization')
                         if self.deadline and self.clock()+pulse >= self.deadline:
                             break
+                        if self.history:
+                            self.history.begin(self.engine)
+                            # A slow disk must not authorize a dose from old data.
+                            if self.clock()-acquired > self.engine.settings.stale_s:
+                                raise ValueError('CO2 sample became stale while saving dose history')
+                            if self._stop.is_set() or (self.deadline and self.clock()+pulse >= self.deadline):
+                                break
                         # No solver or sensor reads occur while the valve is energized.
                         start = self.clock()
                         self.set_valve(True)
@@ -226,6 +287,8 @@ class CO2Control:
                             self.last['actual_pulse_s'] = actual
                             if actual > pulse + max(0.1, pulse*0.25):
                                 raise RuntimeError('valve pulse overran timing tolerance')
+                            if self.history:
+                                self.history.complete(self.engine)
                 if self.log:
                     self.log({'time': time.time(), **self.status()})
                 self._stop.wait(self.engine.settings.sample_s)
@@ -238,8 +301,14 @@ class CO2Control:
                 self._last_stop = self.clock()
                 try:
                     self.set_valve(False)
+                    if self.history:
+                        if self.history.state['pending']:
+                            self.history.quarantine('interrupted dose: settling from confirmed closure')
+                            self.engine = None
+                        else:
+                            self.history.checkpoint(self.engine)
                 except Exception as e:
-                    self.fault = f'CO2 valve closure failed: {e}'
+                    self.fault = f'CO2 shutdown failed: {e}'
 
 
 def run_standalone(config, target, duration_s, log_path):
@@ -269,6 +338,9 @@ def run_standalone(config, target, duration_s, log_path):
             def log(row):
                 f.write(json.dumps(row, allow_nan=False)+'\n'); f.flush()
             controller = CO2Control(read, valve, getattr(cfg, 'CO2_MPC', None), log=log)
+            if getattr(cfg, 'CO2_MPC_STATE_PATH', None):
+                from .co2_history import hardware_identity
+                controller.enable_history(cfg.CO2_MPC_STATE_PATH, hardware_identity(cfg))
             for sig in (signal.SIGINT, signal.SIGTERM):
                 old[sig] = signal.signal(sig, lambda *_: done.set())
             controller.start(target, owner='standalone', duration_s=duration_s)
@@ -280,6 +352,7 @@ def run_standalone(config, target, duration_s, log_path):
     finally:
         if controller:
             controller.stop()
+            controller.close_history()
         bio.finish()
         for sig, handler in old.items():
             signal.signal(sig, handler)

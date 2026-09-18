@@ -136,8 +136,10 @@ With a validated profile installed and service restarted:
 - `GET /api/co2/controller`: active state, owner, fault, target and last forecast.
 - `/api/state` also includes `co2_control`; detailed decisions go to the API log.
 
-After API startup/manual dosing/stopping, wait each enabled path's delay + five mixing constants
-before restarting control, because the prior pending-gas state is unknown. Live
+Without persistent dose history, API startup/manual dosing/stopping requires each
+enabled path's delay + five mixing constants before restarting control, because
+the prior pending-gas state is unknown. With persistence, compatible confirmed
+doses are restored and the blanket restart wait is unnecessary. Live
 setpoint changes by the same owner preserve that state. Manual ON is rejected
 while MPC owns the valve; immediate OFF always stops it. A timed OFF that would
 reopen the CO₂ valve later is rejected. API shutdown and run-stop also close it.
@@ -271,8 +273,9 @@ closes the valve. Stopping cannot remove already injected gas.
 
 Estimates remain conditional on the fixed kinetics and baseline. Unmodelled gas
 arrival, external disturbances and changing uptake can bias them. Learning does
-not write config files, persist across a new run, change a deadline or mark a
-model validated. `/api/co2/controller` and standalone JSONL logs expose a
+not write config files, change a deadline or mark a model validated. Estimates
+reset at a new run unless persistent dose history is enabled. `/api/co2/controller`
+and standalone JSONL logs expose a
 `response_uncertainty` object with current gain/range, immutable safety gain,
 accepted-update count and the last fit's state, gain, RMSE and reason.
 
@@ -352,3 +355,54 @@ gas, or forecast uncertainty even when nominal delivery exceeds loss. Raising
 the target cap does not remove those limits. Establish high-concentration loss
 and gain bounds and test the resulting controller before increasing a deployed
 target cap. Do not disable the no-loss pending-gas guard merely to reach a target.
+
+## Persistent dose history
+
+Set `CO2_MPC_STATE_PATH` to a writable file on persistent local storage, for example:
+
+```python
+CO2_MPC_STATE_PATH = '/home/david/bioreactor-state/co2-controller-state.json'
+```
+
+The API config template sets this to `co2-controller-state.json` beside the rig's
+resolved `config.py`. API and standalone must use **the same config/path** on the
+same Pi. The driver default is `None`, preserving the previous behavior. Keep the
+history outside Git; do not delete it to bypass a wait. Only one process can own
+the file: an exclusive lock also prevents simultaneous API/standalone writers.
+Stop the API before starting standalone control, as for other hardware ownership.
+
+The journal stores confirmed pulse starts, actual durations and operating gain
+estimates. After a service/process restart within the same Pi boot, a new Start
+command reconstructs their remaining arrival and minimum-dose cooldown before
+using a **new fresh measurement**. The pending-gas upper bound includes restored
+doses. A clean stop no longer invents a full settling interval. The target,
+deadline and active-run state are **not** resumed automatically, and unfinished
+learning windows are discarded. A process crash between completed pulses can
+restore the last confirmed journal without treating those doses as zero.
+
+An in-progress marker is atomically written and fsynced before valve ON. The
+confirmed pulse is saved after OFF; disk writes are outside the energized interval.
+Write failures inhibit further injections. Failed or interrupted writes never
+turn a missing dose into an assumed zero dose. Status exposes `dose_history`
+(enabled, recovery reason, stored dose count, pending marker, storage error),
+alongside the usual `restart_wait_s`.
+
+A settling wait remains appropriate when the history is missing, corrupt,
+incompatible with the model/limits/hardware, or indicates an interrupted pulse.
+Manual API doses are conservatively marked untracked and require settling from
+confirmed closure; they cannot silently bypass the journal. The initial install
+therefore has one normal settling wait. A saved fallback deadline survives later
+service restarts, so repeated restarts within the same boot do not reset that wait.
+
+Timestamps use the Linux boot ID and monotonic clock, avoiding wall-clock/NTP
+changes. A **Pi reboot** changes that clock, so it deliberately falls back to a
+settling wait after confirmed closure. This implementation eliminates unnecessary
+service-restart waits, not the reboot guard. Unsupported boot-clock identification
+also uses that fallback.
+
+All valve writers must participate. If a different program/version, disabled
+persistence or physical intervention could have introduced unrecorded gas, archive
+or invalidate the old journal and allow the full settling wait. Do not reuse an
+old journal when re-enabling persistence after such operations. Changing models,
+kinetic/pulse/safety settings or the recorded sensor/relay configuration causes
+fallback automatically; changing only the target does not.

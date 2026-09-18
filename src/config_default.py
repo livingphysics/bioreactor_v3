@@ -18,6 +18,8 @@ class Config:
     # Optional provisional profile setting: trial.allow_indefinite=True permits
     # duration 0 (until stopped), retaining all concentration/pulse/sensor limits.
     CO2_MPC = None
+    # Optional persistent dose history. API and standalone must share one path.
+    CO2_MPC_STATE_PATH = None
     
     # Logging Configuration
     LOG_LEVEL: str = 'INFO'
