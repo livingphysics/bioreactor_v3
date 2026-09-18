@@ -9,7 +9,7 @@ import json
 import math
 import threading
 import time
-from .co2_mpc import GasModel, MPCSettings, PulseMPC, ResponseUncertainty, finite
+from .co2_mpc import GasModel, MPCSettings, ResponseUncertainty, finite, make_controller
 
 
 class CO2Control:
@@ -48,7 +48,7 @@ class CO2Control:
                 raise ValueError('CO2 target exceeds the configured trial maximum')
         model = GasModel(**self.profile['model'])
         settings = MPCSettings(**{**self.profile.get('settings', {}), 'target_ppm': target})
-        PulseMPC(model, settings, self._uncertainty())  # validate model/horizon together
+        make_controller(model, settings, self._uncertainty())  # validate model/horizon together
         return model, settings
 
     def _uncertainty(self):
@@ -99,7 +99,7 @@ class CO2Control:
             if self._last_stop is not None and self.clock()-self._last_stop < model.settling_s(5):
                 raise RuntimeError('wait for prior injected gas to settle before restarting CO2 control')
             value, measured_at = self.read_sample()
-            engine = PulseMPC(model, settings, self._uncertainty())
+            engine = make_controller(model, settings, self._uncertainty())
             engine.observe(value, measured_at, self.clock())
             self.set_valve(False)
             self.engine, self.owner = engine, owner

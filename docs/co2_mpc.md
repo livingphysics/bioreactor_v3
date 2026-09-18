@@ -250,7 +250,7 @@ check is retained and all operating scenario forecasts must also stay below the
 configured planner ceiling. These finite scenarios are not a proof against all
 combinations of pulse gains, time constants, disturbances or sensor errors.
 
-### Learning from observed responses
+### Learning from isolated responses (default)
 
 After a confirmed pulse, the engine captures the last fresh measured baseline
 and actual electrical duration. It fits one response amplitude with the existing
@@ -275,3 +275,80 @@ not write config files, persist across a new run, change a deadline or mark a
 model validated. `/api/co2/controller` and standalone JSONL logs expose a
 `response_uncertainty` object with current gain/range, immutable safety gain,
 accepted-update count and the last fit's state, gain, RMSE and reason.
+
+## Concentration-dependent loss and overlapping doses
+
+The shared worker selects `NonlinearPulseMPC` in `src/co2_nonlinear.py` when
+`model.loss_exponent` differs from 1 or `uncertainty.learning_mode` is `"window"`.
+Direct Python callers should use `make_controller(model, settings, uncertainty)`
+from `src.co2_mpc` to select the appropriate engine. Existing profiles retain the
+original engine and isolated-response learner without configuration changes.
+
+The optional loss law uses excess concentration `x = C - ambient_ppm`:
+
+```
+loss(C) = leak_per_s * loss_reference_ppm * (x / loss_reference_ppm) ** loss_exponent
+dC/dt = arriving gas - loss(C)
+```
+
+For concentrations below ambient the loss reverses sign. `loss_exponent` defaults
+to 1 (exponential decay) and must be between 1 and 3; `loss_reference_ppm` defaults
+to 50,000 and is a reference **excess** concentration. `leak_per_s` is the fractional
+loss rate at that reference. Fit these parameters from valve-off data covering
+the intended concentration range. This describes net gas loss, including possible
+uptake; it does not identify leakage separately from other processes. Extrapolation
+above the measured range remains provisional.
+
+For the nonlinear model, a gain learner must use window mode. Add these fields
+to the existing `uncertainty` object (other required gain bounds still apply):
+
+```python
+'learning_mode': 'window',
+'learning_window_s': 2700,
+'learning_interval_s': 300,
+```
+
+The window must cover `model.settling_s() * kinetics_factor`; the update interval
+must not exceed the window. The engine retains at most 10,000 observations and
+prunes doses only after their mixing tails and learning windows have passed.
+Every fit integrates measured loss over a rolling window and fits a common gain:
+
+```
+measured concentration change + integrated loss = gain * arrived valve seconds
+```
+
+Arrived valve seconds include **all** overlapping doses and residual arrival from
+doses before the window. A new pulse therefore does not cancel learning. Fits
+still require resolved excitation, at least 12 points and acceptable residuals.
+A measurement gap longer than `stale_s` clears the learning window; the worker's
+existing missing-reading pause, recovery and timeout policy remains in force.
+Successive windows overlap, so accepted-update counts are not independent trials.
+
+An accepted gain is smoothed by `learning_rate`. The operating range includes
+the configured range and 80–120% of the current estimate/latest fit. It can recover
+from earlier extreme estimates but cannot shrink inside the configured range.
+The fixed safety gain is never learned or reduced; a resolved fit above it faults
+control. Delay, mixing and loss parameters remain fixed. A wrong loss model can
+bias the estimated gain or trigger this fault, so inspect held-out responses too.
+
+Prediction integrates mixing-reservoir arrival and nonlinear decay instead of
+adding independent impulse responses. Nine operating scenarios guide tracking;
+a separate fixed-upper-gain forecast also checks the ceiling. The immediate
+pending-gas check still assumes **no future loss** and uses inflated delay/mixing.
+Learning cannot bypass either check. Status includes `learning_mode`, the loss
+parameters, window-fit details and `safety_predicted_peak_ppm` when a plan is made.
+
+### Dosing capacity and high setpoints
+
+Maximum average delivery is approximately
+`gain * (max_pulse_s - valve_dead_s) / min_interval_s` ppm/s. Compare this with
+the fitted loss at the requested target. Capacity can be increased by shortening
+the minimum interval while retaining a reliably resolved pulse length. Revalidate
+overlapping responses and keep `planning_interval_s >= min_interval_s`; API relay
+guards still apply. Capacity alone does not guarantee the target is reachable.
+
+A target close to the upper limit may be blocked by the pulse's size, unarrived
+gas, or forecast uncertainty even when nominal delivery exceeds loss. Raising
+the target cap does not remove those limits. Establish high-concentration loss
+and gain bounds and test the resulting controller before increasing a deployed
+target cap. Do not disable the no-loss pending-gas guard merely to reach a target.

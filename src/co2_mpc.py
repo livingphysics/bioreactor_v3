@@ -29,12 +29,41 @@ class GasModel:
     slow_fraction: float = 0
     slow_delay_s: float = 0
     slow_mixing_s: float = 1
+    loss_exponent: float = 1
+    loss_reference_ppm: float = 50000
 
     def __post_init__(self):
         for k, v in asdict(self).items():
-            finite(v, k, strict=k in ('gain_ppm_per_s', 'mixing_s', 'slow_mixing_s'))
+            finite(v, k, strict=k in ('gain_ppm_per_s', 'mixing_s', 'slow_mixing_s', 'loss_reference_ppm'))
+        if not 1 <= self.loss_exponent <= 3:
+            raise ValueError('loss_exponent must be between 1 and 3')
         if self.slow_fraction > 1:
             raise ValueError('slow_fraction must be between zero and one')
+
+    def loss_rate(self, ppm):
+        """Net ppm/s loss; leak_per_s is the fractional rate at the reference excess."""
+        excess = ppm - self.ambient_ppm
+        return math.copysign(self.leak_per_s * self.loss_reference_ppm *
+                             (abs(excess) / self.loss_reference_ppm) ** self.loss_exponent, excess)
+
+    def decay(self, ppm, seconds):
+        """Exact no-input decay for the linear or concentration-dependent loss law."""
+        excess = ppm - self.ambient_ppm
+        if self.loss_exponent == 1:
+            return self.ambient_ppm + excess * math.exp(-self.leak_per_s * seconds)
+        n = self.loss_exponent - 1
+        scale = 1 + n*self.leak_per_s*seconds*(abs(excess)/self.loss_reference_ppm)**n
+        return self.ambient_ppm + excess / scale**(1/n)
+
+    def advance(self, ppm, released_ppm, seconds):
+        """Symmetric split step; released_ppm is integrated reservoir release."""
+        return self.decay(self.decay(ppm, seconds/2) + released_ppm, seconds/2)
+
+    def arrived_fraction(self, age_s):
+        def path(delay, tau):
+            return -math.expm1(-max(0.0, age_s-delay)/tau)
+        return ((1-self.slow_fraction)*path(self.delay_s, self.mixing_s)
+                + self.slow_fraction*path(self.slow_delay_s, self.slow_mixing_s))
 
     def settling_s(self, constants=4):
         """Cover every enabled transport/mixing path, including delayed gas."""
@@ -44,6 +73,8 @@ class GasModel:
 
     def response(self, age_s):
         """Concentration per ppm injected, including transport/mixing/leakage."""
+        if self.loss_exponent != 1:
+            raise ValueError('Nonlinear loss has no additive impulse response; use trajectory prediction')
         def path(delay, tau):
             t = age_s-delay
             if t <= 0:
@@ -147,10 +178,18 @@ class ResponseUncertainty:
     learning_rate: float = 0.3
     min_response_ppm: float = 200
     max_relative_rmse: float = 0.25
+    learning_mode: str = 'isolated'
+    learning_window_s: float = 2700
+    learning_interval_s: float = 300
 
     def __post_init__(self):
         for k, v in asdict(self).items():
-            finite(v, k, strict=True)
+            if k != 'learning_mode':
+                finite(v, k, strict=True)
+        if self.learning_mode not in ('isolated', 'window'):
+            raise ValueError('learning_mode must be isolated or window')
+        if not self.learning_interval_s <= self.learning_window_s <= 21600:
+            raise ValueError('learning interval <= window <= 21600 s required')
         if self.gain_min_ppm_per_s > self.gain_max_ppm_per_s:
             raise ValueError('uncertainty gains must be ordered')
         if self.kinetics_factor < 1:
@@ -408,3 +447,11 @@ class PulseMPC:
                                   scenario_peak_max_ppm=max(max(p) for p in forecasts[1:]),
                                   scenario_count=len(forecasts)-1)
         return doses[0] if math.isfinite(best) else 0.0
+
+
+def make_controller(model, settings, uncertainty=None):
+    """Keep existing linear profiles unchanged; nonlinear/window mode is opt-in."""
+    if model.loss_exponent != 1 or (uncertainty and uncertainty.learning_mode == 'window'):
+        from .co2_nonlinear import NonlinearPulseMPC
+        return NonlinearPulseMPC(model, settings, uncertainty)
+    return PulseMPC(model, settings, uncertainty)
