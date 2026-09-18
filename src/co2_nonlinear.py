@@ -10,7 +10,7 @@ from .co2_mpc import PulseMPC, finite
 
 
 class NonlinearPulseMPC(PulseMPC):
-    def __init__(self, model, settings, uncertainty=None):
+    def __init__(self, model, settings, uncertainty=None, average_correction=None):
         super().__init__(model, settings, uncertainty)
         if uncertainty:
             if uncertainty.learning_mode != 'window':
@@ -23,6 +23,11 @@ class NonlinearPulseMPC(PulseMPC):
         self._last_fit_at = -math.inf
         self._estimate = None
         self._pulse_count = 0
+        from .co2_average import AverageErrorCorrection
+        self.average = AverageErrorCorrection(average_correction, settings) if average_correction else None
+
+    def average_status(self):
+        return self.average.status(self.settings) if self.average else {'enabled': False}
 
     def committed(self, start, actual_s):
         finite(start, 'start'); finite(actual_s, 'actual pulse', strict=True)
@@ -135,6 +140,12 @@ class NonlinearPulseMPC(PulseMPC):
                 if expected>=self.settings.stuck_expected_rise_ppm:
                     raise ValueError('CO2 reading is not responding to the predicted injected gas')
         self._estimate = prediction+self.settings.observer_gain*(value-prediction)
+        if self.average:
+            planned = self.last_plan.get('planned_pulses_s', [])
+            constrained = (self.last_plan.get('dose_budget_blocked', False)
+                           or self.last_plan.get('feasible') is False
+                           or bool(planned and all(d >= self.settings.max_pulse_s for d in planned)))
+            self.average.observe(value, measured_at, self.settings, constrained=constrained)
         self.time = self.last_sample = measured_at
         self.last_value = value
         # Keep all unresolved gas and all pulses that can contribute to the
@@ -155,6 +166,7 @@ class NonlinearPulseMPC(PulseMPC):
 
     def propose(self, now):
         s,m = self.settings,self.model
+        tracking_target = self.average.target(s) if self.average else s.target_ppm
         if self.time is None or now-self.last_sample>s.stale_s:
             raise ValueError('fresh CO2 observation required')
         if now-self.last_dose<s.min_interval_s:
@@ -202,8 +214,8 @@ class NonlinearPulseMPC(PulseMPC):
                         return math.inf,[]
                     pred.append(value)
                 forecasts.append(pred)
-                costs.append(sum(w*max(0,abs(v-s.target_ppm)-s.deadband_ppm)**2*
-                                 (4 if v>s.target_ppm else 1)/scale**2 for w,v in zip(weights,pred))/weight_sum)
+                costs.append(sum(w*max(0,abs(v-tracking_target)-s.deadband_ppm)**2*
+                                 (4 if v>tracking_target else 1)/scale**2 for w,v in zip(weights,pred))/weight_sum)
             costs=costs[:-1] # last forecast is a guard, not an operating scenario
             return (1-risk)*sum(costs)/len(costs)+risk*max(costs)+s.pulse_cost*effort,forecasts
         doses=[0.0]*len(moves)
@@ -222,7 +234,8 @@ class NonlinearPulseMPC(PulseMPC):
                         best,chosen,amounts,forecasts=cost,dose,trial,pred
                 doses[j]=chosen
         self.last_plan={**budget,'pulse_s':doses[0],'planned_pulses_s':doses,'feasible':math.isfinite(best),
-                        'model_type':'nonlinear_loss','scenario_count':len(models)-1}
+                        'model_type':'nonlinear_loss','scenario_count':len(models)-1,
+                        'tracking_target_ppm':tracking_target}
         if forecasts:
             nominal=forecasts[4] if self.uncertainty else forecasts[0]
             self.last_plan.update(predicted_peak_ppm=max(nominal),predicted_end_ppm=nominal[-1],

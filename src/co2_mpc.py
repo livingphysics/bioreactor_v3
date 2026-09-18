@@ -260,6 +260,9 @@ class PulseMPC:
                 'safety_gain_ppm_per_s': self.model.gain_ppm_per_s*self.settings.gain_safety_factor,
                 'accepted_updates': self.gain_updates, 'last_fit': dict(self.last_gain_fit)}
 
+    def average_status(self):
+        return {'enabled': False}
+
     def _learn_response(self, value, stamp):
         f, u, m = self._fit, self.uncertainty, self.model
         if f is None:
@@ -449,9 +452,11 @@ class PulseMPC:
         return doses[0] if math.isfinite(best) else 0.0
 
 
-def make_controller(model, settings, uncertainty=None):
+def make_controller(model, settings, uncertainty=None, average_correction=None):
     """Keep existing linear profiles unchanged; nonlinear/window mode is opt-in."""
     if model.loss_exponent != 1 or (uncertainty and uncertainty.learning_mode == 'window'):
         from .co2_nonlinear import NonlinearPulseMPC
-        return NonlinearPulseMPC(model, settings, uncertainty)
+        return NonlinearPulseMPC(model, settings, uncertainty, average_correction)
+    if average_correction:
+        raise ValueError('average correction requires the nonlinear/window controller')
     return PulseMPC(model, settings, uncertainty)

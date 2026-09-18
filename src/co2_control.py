@@ -94,12 +94,17 @@ class CO2Control:
                 raise ValueError('CO2 target exceeds the configured trial maximum')
         model = GasModel(**self.profile['model'])
         settings = MPCSettings(**{**self.profile.get('settings', {}), 'target_ppm': target})
-        make_controller(model, settings, self._uncertainty())  # validate model/horizon together
+        make_controller(model, settings, self._uncertainty(), self._average_correction())
         return model, settings
 
     def _uncertainty(self):
         config = (self.profile or {}).get('uncertainty')
         return ResponseUncertainty(**config) if config is not None else None
+
+    def _average_correction(self):
+        from .co2_average import AverageCorrectionSettings
+        config = (self.profile or {}).get('average_correction')
+        return AverageCorrectionSettings(**config) if config is not None else None
 
     def allows_indefinite(self):
         profile = self.profile or {}
@@ -146,7 +151,7 @@ class CO2Control:
             elif self._restart_wait():
                 raise RuntimeError('wait for prior injected gas to settle before restarting CO2 control')
             value, measured_at = self.read_sample()
-            engine = make_controller(model, settings, self._uncertainty())
+            engine = make_controller(model, settings, self._uncertainty(), self._average_correction())
             if self.history:
                 self.history.restore(engine)
             engine.observe(value, measured_at, self.clock())
@@ -207,6 +212,7 @@ class CO2Control:
                                          if self._last_valid_at is not None else None),
                     'target_ppm': self.engine.settings.target_ppm if self.engine else None,
                     'response_uncertainty': self.engine.uncertainty_status() if self.engine else None,
+                    'average_correction': self.engine.average_status() if self.engine else None,
                     'last': dict(self.last)}
 
     def _plan_sample(self):

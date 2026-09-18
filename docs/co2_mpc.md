@@ -406,3 +406,55 @@ or invalidate the old journal and allow the full settling wait. Do not reuse an
 old journal when re-enabling persistence after such operations. Changing models,
 kinetic/pulse/safety settings or the recorded sensor/relay configuration causes
 fallback automatically; changing only the target does not.
+
+## Correcting persistent average error
+
+The nonlinear/window planner optionally accepts an `average_correction` object
+alongside `model`, `settings` and `uncertainty`:
+
+```python
+'average_correction': {
+    'window_s': 1800,
+    'integral_time_s': 3600,
+    'max_offset_ppm': 5000,
+    'activation_band_ppm': 5000,
+    'deadband_ppm': 100,
+    'max_rate_ppm_per_s': 2,
+},
+```
+
+Omit the object to preserve the previous behavior. These values describe the
+bioreactor01 commissioning configuration, not a universal tuning.
+
+After a full window of fresh measurements near the requested setpoint, a bounded
+integrator uses the **time-weighted measured mean** to shift the optimizer's
+internal tracking target. For example, a persistent measured mean above 50,000
+ppm slowly lowers that internal target, delaying subsequent doses. The public
+setpoint remains 50,000 ppm. This corrects a cycle-average bias; it does not remove
+the ripple caused by finite pulses or require every reading to stay above target.
+
+The offset rate is `(requested - measured mean) / integral_time_s`, limited by
+`max_rate_ppm_per_s`. Its magnitude cannot exceed `max_offset_ppm` or 10% of the
+requested target, and the internal target stays below the existing forecast
+ceiling. An error within `deadband_ppm` leaves the offset unchanged.
+
+Startup ramps and values outside `activation_band_ppm` clear the averaging window
+and freeze the offset. Gaps longer than `stale_s` require a new full window; cached
+samples do not count twice. A dosing guard, infeasible plan or fully saturated
+planned schedule inhibits upward integration, and offset clamping prevents
+integral windup. Lowering the internal target remains possible when dosing is
+constrained. Changing the user setpoint resets both the window and offset.
+
+Correction changes only tracking cost. The gain learner still sees the actual
+measurements; the concentration cutoff, fixed upper gain, pulse limits and
+no-loss pending-gas budget are unchanged. It is available to API, programs and
+standalone through the shared worker. Direct factory callers can pass an
+`AverageCorrectionSettings` instance as the fourth `make_controller` argument.
+
+`GET /api/co2/controller` and worker logs expose `average_correction`, including
+state, measured mean/error, offset, requested target and internal tracking target.
+A new controller/run or service restart begins a new averaging window at zero
+offset. The confirmed dose journal is still restored: enabling this correction
+does not invalidate dose history or impose a new settling wait. No stale integral
+or averaging samples are imported across a restart. Allow a full averaging window
+and subsequent gradual adjustment when assessing a newly started correction.
