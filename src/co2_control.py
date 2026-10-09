@@ -34,6 +34,7 @@ class CO2Control:
         self._recovering = False
         self._recovery_count = 0
         self.history = None
+        self._reference_provider = None
 
     def enable_history(self, path, identity=None, *, boot_id=None):
         """Enable once, with control stopped; the file is exclusively owned."""
@@ -127,7 +128,7 @@ class CO2Control:
                 raise ValueError('CO2 trial duration exceeds its configured maximum')
         return duration_s
 
-    def start(self, target, owner='api', duration_s=None):
+    def start(self, target, owner='api', duration_s=None, reference_provider=None):
         model, settings = self.validate(target)
         duration_s = self.validate_duration(duration_s)
         trial_mode = self.profile.get('validated') is not True
@@ -154,6 +155,11 @@ class CO2Control:
             engine = make_controller(model, settings, self._uncertainty(), self._average_correction())
             if self.history:
                 self.history.restore(engine)
+            if reference_provider:
+                trajectory = reference_provider(self.clock())
+                trajectory.require_span(measured_at, self.clock()+settings.horizon_s+settings.prediction_step)
+                engine.set_reference(trajectory)
+            self._reference_provider = reference_provider
             engine.observe(value, measured_at, self.clock())
             self.set_valve(False)
             self.engine, self.owner = engine, owner
@@ -211,6 +217,7 @@ class CO2Control:
                     'last_valid_age_s': (max(0.0, self.clock()-self._last_valid_at)
                                          if self._last_valid_at is not None else None),
                     'target_ppm': self.engine.settings.target_ppm if self.engine else None,
+                    'reference_mode': bool(self._reference_provider),
                     'response_uncertainty': self.engine.uncertainty_status() if self.engine else None,
                     'average_correction': self.engine.average_status() if self.engine else None,
                     'last': dict(self.last)}
@@ -243,6 +250,17 @@ class CO2Control:
                          'measurement_state': 'waiting_for_fresh_readings',
                          'commanded_pulse_s': 0.0}
             return 0.0
+        reference_error = None
+        if self._reference_provider:
+            from .co2_reference import ReferenceUnavailable
+            try:
+                trajectory = self._reference_provider(now)
+                trajectory.require_span(acquired, now+settings.horizon_s+settings.prediction_step)
+                self.engine.set_reference(trajectory)
+                self.engine.settings = replace(settings, target_ppm=trajectory.value_at(now))
+            except ReferenceUnavailable as e:
+                reference_error = str(e)
+                self.engine.pause_reference()
         fresh = self.engine.observe(value, acquired, now)
         if fresh:
             self._last_valid_at = acquired
@@ -250,12 +268,36 @@ class CO2Control:
                 self._recovery_count += 1
                 if self._recovery_count >= settings.recovery_samples:
                     self._recovering = False
+        if reference_error:
+            self.set_valve(False)
+            self.last = {'co2_ppm': value, 'sample_age_s': now-acquired,
+                         'measurement_state': 'reference_paused',
+                         'reference_error': reference_error, 'commanded_pulse_s': 0.0}
+            return 0.0
         pulse = self.engine.propose(now) if fresh and not self._recovering else 0.0
         self.last = {'co2_ppm': value, 'sample_age_s': now-acquired,
                      **(self.engine.last_plan if not self._recovering else {}),
                      'measurement_state': 'recovering' if self._recovering else 'ready',
                      'commanded_pulse_s': pulse}
         return pulse
+
+    def _reference_ready(self):
+        """Recheck immediately before ON; an outage cancels only the planned dose."""
+        if not self._reference_provider:
+            return True
+        from .co2_reference import ReferenceUnavailable
+        try:
+            now = self.clock()
+            trajectory = self._reference_provider(now)
+            settings = self.engine.settings
+            trajectory.require_span(now, now+settings.horizon_s+settings.prediction_step)
+            return True
+        except ReferenceUnavailable as e:
+            self.engine.pause_reference()
+            self.last.update(measurement_state='reference_paused',
+                             reference_error=str(e), commanded_pulse_s=0.0)
+            self.set_valve(False)
+            return False
 
     def _run(self):
         try:
@@ -272,16 +314,25 @@ class CO2Control:
                             raise ValueError('CO2 sample became stale during optimization')
                         if self.deadline and self.clock()+pulse >= self.deadline:
                             break
-                        if self.history:
+                        if not self._reference_ready():
+                            pulse = 0.0
+                        if pulse and self.history:
                             self.history.begin(self.engine)
                             # A slow disk must not authorize a dose from old data.
                             if self.clock()-acquired > self.engine.settings.stale_s:
                                 raise ValueError('CO2 sample became stale while saving dose history')
                             if self._stop.is_set() or (self.deadline and self.clock()+pulse >= self.deadline):
                                 break
+                        if pulse and not self._reference_ready():
+                            # ON has not been attempted: remove the pending marker
+                            # without inventing a dose or quarantining prior history.
+                            if self.history:
+                                self.history.complete(self.engine)
+                            pulse = 0.0
                         # No solver or sensor reads occur while the valve is energized.
-                        start = self.clock()
-                        self.set_valve(True)
+                        if pulse:
+                            start = self.clock()
+                            self.set_valve(True)
                 if pulse:
                     try:
                         self._stop.wait(pulse)

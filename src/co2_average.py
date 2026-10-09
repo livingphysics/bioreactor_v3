@@ -37,47 +37,52 @@ class AverageErrorCorrection:
         self.setpoint = None
         self.offset = 0.0
         self.mean = None
+        self.mean_error = None
+        self.following = False
         self.state = 'collecting'
         self.sync(settings)
 
-    def sync(self, settings):
-        if self.setpoint != settings.target_ppm:
-            self.setpoint = settings.target_ppm
+    def sync(self, settings, reference_ppm=None):
+        following = reference_ppm is not None
+        requested = settings.target_ppm if reference_ppm is None else reference_ppm
+        if following != self.following or (not following and self.setpoint != requested):
             self.offset = 0.0
             self.points.clear()
-            self.mean = None
+            self.mean = self.mean_error = None
             self.state = 'collecting'
+        self.setpoint, self.following = requested, following
         # Bound both absolute shift and its fraction of the requested target.
         bound = min(self.config.max_offset_ppm, self.setpoint*.1)
         self.lower = max(1, self.setpoint-bound)
         self.upper = min(self.setpoint+bound, settings.max_ppm-settings.margin_ppm-1)
         self.offset = min(self.upper-self.setpoint, max(self.lower-self.setpoint, self.offset))
 
-    def observe(self, value, stamp, settings, *, constrained=False):
-        self.sync(settings)
+    def observe(self, value, stamp, settings, *, constrained=False, reference_ppm=None):
+        self.sync(settings, reference_ppm)
         if self.points and stamp <= self.points[-1][0]:
             return
         band = self.config.activation_band_ppm
         if abs(value-self.setpoint) > band:
             # Do not integrate startup ramps or large disturbances/capacity limits.
-            self.points.clear(); self.mean = None; self.state = 'outside_activation_band'
+            self.points.clear(); self.mean = self.mean_error = None; self.state = 'outside_activation_band'
             return
         previous = self.points[-1][0] if self.points else None
         if previous is not None and stamp-previous > settings.stale_s:
             self.points.clear(); previous = None
-        self.points.append((stamp,value))
+        self.points.append((stamp,value-self.setpoint))
         cutoff = stamp-self.config.window_s
         while len(self.points)>1 and self.points[1][0] <= cutoff:
             self.points.popleft()
         if len(self.points)<12 or self.points[0][0]>cutoff:
-            self.mean = None; self.state = 'collecting'
+            self.mean = self.mean_error = None; self.state = 'collecting'
             return
         points = list(self.points)
         if points[0][0] < cutoff:
             t0,v0 = points[0]; t1,v1 = points[1]
             points[0] = (cutoff,v0+(v1-v0)*(cutoff-t0)/(t1-t0))
-        self.mean = sum((v0+v1)/2*(t1-t0) for (t0,v0),(t1,v1) in zip(points,points[1:]))/self.config.window_s
-        error = self.setpoint-self.mean
+        self.mean_error = sum((v0+v1)/2*(t1-t0) for (t0,v0),(t1,v1) in zip(points,points[1:]))/self.config.window_s
+        self.mean = None if self.following else self.setpoint+self.mean_error
+        error = -self.mean_error
         if abs(error) <= self.config.deadband_ppm:
             self.state = 'within_deadband'
             return
@@ -89,17 +94,17 @@ class AverageErrorCorrection:
                    min(self.config.max_rate_ppm_per_s,error/self.config.integral_time_s))
         self.offset += rate*dt
         unclamped = self.offset
-        self.sync(settings)  # clamping is anti-windup; no hidden integral builds up
+        self.sync(settings, self.setpoint if self.following else None)  # clamping is anti-windup; no hidden integral builds up
         self.state = 'offset_limit' if self.offset != unclamped else 'correcting'
 
     def target(self, settings):
-        self.sync(settings)
+        self.sync(settings, self.setpoint if self.following else None)
         return self.setpoint+self.offset
 
     def status(self, settings):
         target = self.target(settings)
         return {'enabled':True, 'state':self.state, 'window_s':self.config.window_s,
-                'mean_ppm':self.mean, 'mean_error_ppm':self.mean-self.setpoint if self.mean is not None else None,
+                'mean_ppm':self.mean, 'mean_error_ppm':self.mean_error,
                 'offset_ppm':self.offset, 'tracking_target_ppm':target,
                 'requested_target_ppm':self.setpoint,
                 'collected_s':self.points[-1][0]-self.points[0][0] if self.points else 0}

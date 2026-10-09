@@ -225,3 +225,8 @@ pulses. Run it standalone or through the API's `co2` program command. See
 [setup and operation](docs/co2_mpc.md). Control is opt-in and requires
 a rig-specific validated model or an explicitly bounded provisional profile.
 Illustrative parameters are not calibration.
+
+For master/follower operation, the planner also accepts a delayed future reference
+trajectory and corrects average tracking error. See [delayed CO₂ tracking and
+offline replay](docs/co2_tracking.md). The API provides observation and guarded
+tracking sessions; low-concentration delivery must be commissioned separately.

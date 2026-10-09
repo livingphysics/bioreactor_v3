@@ -140,12 +140,13 @@ class NonlinearPulseMPC(PulseMPC):
                 if expected>=self.settings.stuck_expected_rise_ppm:
                     raise ValueError('CO2 reading is not responding to the predicted injected gas')
         self._estimate = prediction+self.settings.observer_gain*(value-prediction)
-        if self.average:
+        if self.average and not self.reference_paused:
             planned = self.last_plan.get('planned_pulses_s', [])
             constrained = (self.last_plan.get('dose_budget_blocked', False)
                            or self.last_plan.get('feasible') is False
                            or bool(planned and all(d >= self.settings.max_pulse_s for d in planned)))
-            self.average.observe(value, measured_at, self.settings, constrained=constrained)
+            self.average.observe(value, measured_at, self.settings, constrained=constrained,
+                                 reference_ppm=self.requested_target(measured_at) if self.reference else None)
         self.time = self.last_sample = measured_at
         self.last_value = value
         # Keep all unresolved gas and all pulses that can contribute to the
@@ -166,7 +167,7 @@ class NonlinearPulseMPC(PulseMPC):
 
     def propose(self, now):
         s,m = self.settings,self.model
-        tracking_target = self.average.target(s) if self.average else s.target_ppm
+        tracking_target = self.requested_target(now) + (self.average.offset if self.average else 0)
         if self.time is None or now-self.last_sample>s.stale_s:
             raise ValueError('fresh CO2 observation required')
         if now-self.last_dose<s.min_interval_s:
@@ -183,6 +184,7 @@ class NonlinearPulseMPC(PulseMPC):
                               'feasible':self.last_value+pending<ceiling}
             return 0.0
         times = [now+i*s.prediction_step for i in range(1,math.ceil(s.horizon_s/s.prediction_step)+1)]
+        targets = self.planning_targets(times)
         previous = [self.last_sample]+times[:-1]
         spans = [b-a for a,b in zip(previous,times)]
         moves = [now+i*s.planning_interval for i in range(math.ceil(s.horizon_s/s.planning_interval))]
@@ -214,8 +216,8 @@ class NonlinearPulseMPC(PulseMPC):
                         return math.inf,[]
                     pred.append(value)
                 forecasts.append(pred)
-                costs.append(sum(w*max(0,abs(v-tracking_target)-s.deadband_ppm)**2*
-                                 (4 if v>tracking_target else 1)/scale**2 for w,v in zip(weights,pred))/weight_sum)
+                costs.append(sum(w*max(0,abs(v-target)-s.deadband_ppm)**2*
+                                 (4 if v>target else 1)/scale**2 for w,v,target in zip(weights,pred,targets))/weight_sum)
             costs=costs[:-1] # last forecast is a guard, not an operating scenario
             return (1-risk)*sum(costs)/len(costs)+risk*max(costs)+s.pulse_cost*effort,forecasts
         doses=[0.0]*len(moves)

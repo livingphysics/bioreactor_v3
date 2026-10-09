@@ -222,6 +222,8 @@ class PulseMPC:
         self.last_sample = None
         self.last_value = None
         self.last_plan = {}
+        self.reference = None
+        self.reference_paused = False
         self._observations = deque(maxlen=10000)
         self.gain_estimate = model.gain_ppm_per_s
         self.gain_low = uncertainty.gain_min_ppm_per_s if uncertainty else self.gain_estimate
@@ -230,6 +232,32 @@ class PulseMPC:
         self._fit = None
         self.gain_updates = 0
         self.last_gain_fit = {'state': 'no_pulse'}
+
+    def set_reference(self, trajectory):
+        self.reference = trajectory
+        self.reference_paused = False
+
+    def pause_reference(self):
+        self.reference_paused = True
+        if getattr(self, 'average', None):
+            self.average.points.clear()
+            self.average.mean = self.average.mean_error = None
+            self.average.state = 'reference_paused'
+
+    def requested_target(self, stamp):
+        value = self.reference.value_at(stamp) if self.reference else self.settings.target_ppm
+        finite(value, 'reference target', strict=True)
+        if value >= self.settings.max_ppm-self.settings.margin_ppm:
+            raise ValueError('reference exceeds configured concentration ceiling')
+        return value
+
+    def planning_targets(self, times):
+        offset = self.average.offset if getattr(self, 'average', None) else 0
+        s = self.settings
+        bound = self.average.config.max_offset_ppm if getattr(self, 'average', None) else 0
+        return [max(1, min(s.max_ppm-s.margin_ppm-1,
+                    target+max(-min(bound,target*.1),min(min(bound,target*.1),offset))))
+                for target in (self.requested_target(t) for t in times)]
 
     def committed(self, start, actual_s):
         """Call only after a confirmed pulse; never record a rejected command."""
@@ -374,6 +402,7 @@ class PulseMPC:
                             'feasible':self.last_value+unarrived<budget_ceiling}
             return 0.0
         times = [now+i*s.prediction_step for i in range(1, math.ceil(s.horizon_s/s.prediction_step)+1)]
+        targets = self.planning_targets(times)
         # Keep the original fixed-gain safety forecast independent of learning.
         fixed_injected = lambda t: sum(m.dose_ppm(d)*m.response(t-start) for start,d in self.doses)
         injected = [fixed_injected(t) for t in times]
@@ -419,8 +448,8 @@ class PulseMPC:
             scenarios = predictions[1:] if self.uncertainty else predictions
             if any(v >= budget_ceiling for scenario in scenarios for v in scenario):
                 return math.inf
-            costs = [sum(w*max(0,abs(v-s.target_ppm)-s.deadband_ppm)**2*
-                         (4 if v>s.target_ppm else 1)/scale**2 for v,w in zip(scenario,weights))/total_weight
+            costs = [sum(w*max(0,abs(v-target)-s.deadband_ppm)**2*
+                         (4 if v>target else 1)/scale**2 for v,w,target in zip(scenario,weights,targets))/total_weight
                      for scenario in scenarios]
             risk = self.uncertainty.risk_weight if self.uncertainty else 0
             cost = (1-risk)*sum(costs)/len(costs)+risk*max(costs)
