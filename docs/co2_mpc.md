@@ -458,3 +458,18 @@ offset. The confirmed dose journal is still restored: enabling this correction
 does not invalidate dose history or impose a new settling wait. No stale integral
 or averaging samples are imported across a restart. Allow a full averaging window
 and subsequent gradual adjustment when assessing a newly started correction.
+# Sub-millisecond pulse commissioning
+
+Pulse durations are in seconds: 1 ms is `0.001`, and 0.1 ms is `0.0001`.
+The shared worker uses a short software wait for pulses up to 10 ms, avoiding a
+new timer thread and spinning for at most the final millisecond. Longer pulses
+retain a cancellable event wait. OFF remains in a `finally` block. Normal INFO
+logging is kept outside GPIO writes to reduce overhead while energized.
+
+These are requested durations, not a guarantee of GPIO edge timing or mechanical
+valve movement. Measure completed-write durations and gas response on the rig.
+Linux scheduling, write latency and valve mechanics can make the smallest
+repeatable gas dose larger than the requested minimum. `min_pulse_s`,
+`max_pulse_s`, `pulse_quantum_s` and `valve_dead_s` must reflect that calibration.
+After changing regulator/needle flow, remeasure dose gain and kinetics before
+using the old MPC profile. Keep automatic control disabled during calibration.

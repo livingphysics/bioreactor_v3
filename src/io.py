@@ -326,7 +326,10 @@ class RelayDriver:
             pin = self._relays[relay_name]
             lgpio.gpio_write(self._gpio_chip, pin, self._pin_value(state))
             self._states[relay_name] = state
-            self.bioreactor.logger.info(f"Relay {relay_name} turned {'ON' if state else 'OFF'} (pin {pin})")
+            # File/terminal logging inside a sub-millisecond pulse changes its
+            # duration. The dose adapter logs after OFF; retain per-write detail
+            # at DEBUG for hardware troubleshooting.
+            self.bioreactor.logger.debug(f"Relay {relay_name} turned {'ON' if state else 'OFF'} (pin {pin})")
             return True
         except Exception as e:
             self.bioreactor.logger.error(f"Error setting relay {relay_name}: {e}")

@@ -18,6 +18,8 @@ class Config:
     # Omit it for legacy planning; see the commissioning example in the same docs.
     # Optional provisional profile setting: trial.allow_indefinite=True permits
     # duration 0 (until stopped), retaining all concentration/pulse/sensor limits.
+    # Pulse durations are seconds; 0.0001 requests 0.1 ms. Use a minimum and
+    # quantum supported by measured valve/gas response, not software timing alone.
     CO2_MPC = None
     # Optional persistent dose history. API and standalone must share one path.
     CO2_MPC_STATE_PATH = None

@@ -10,6 +10,7 @@ import math
 import threading
 import time
 from .co2_mpc import GasModel, MPCSettings, ResponseUncertainty, finite, make_controller
+from .pulse_timing import wait_pulse
 
 
 class CO2Control:
@@ -335,7 +336,7 @@ class CO2Control:
                             self.set_valve(True)
                 if pulse:
                     try:
-                        self._stop.wait(pulse)
+                        wait_pulse(pulse, self._stop, clock=self.clock)
                     finally:
                         with self.lock:
                             self.set_valve(False)
